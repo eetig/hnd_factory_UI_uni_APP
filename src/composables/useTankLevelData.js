@@ -10,14 +10,18 @@ import { normalizeImageList } from '../utils/image'
 //
 // 默认区间取「本年度」而不是「本月」：记录是按月产生的（每月月底下午 3 点抄录），
 // 若默认本月，一个月里绝大多数时间打开都是空表，用户会以为功能坏了。
-const tankLevelRecords = ref([])
-const tankLevelTableData = ref([])
+//
+// ⚠️ 改造要点（2026-10-10 统一整改）：这一页的**条件过滤早就在服务端**了
+// （改造前前端就按接口查询，不像领料/入库那样全量拉回来再本地过滤），
+// 本次只是把最后那段**前端 slice 分页**也搬到了服务端。
+const tankLevelTableData = ref([]) // 当前页
 const tankLevelPageNum = ref(1)
 const tankLevelPageSize = ref(10)
-const tankLevelTotal = ref(0)
+const tankLevelTotal = ref(0) // **筛选后**的总条数
 const tankLevelLoading = ref(false)
 const tankLevelError = ref('')
-// 是否已成功取过一次：面板是 v-show 常驻的，不记住这一点就会每次切 Tab 都打一次接口
+// 是否已成功取过一次：面板是 v-show 常驻的，不记住这一点就会每次切 Tab 都打一次接口。
+// 失败时不置位（见下），所以「取不到 → 离开再回来」会重试一次，比停在一张空表上好。
 const tankLevelLoaded = ref(false)
 const tankLevelStartDate = ref(getFirstDayOfCurrentYear())
 const tankLevelEndDate = ref(getToday())
@@ -88,9 +92,9 @@ export function normalizeTankLevelRecord(item) {
   return record
 }
 
-/** 组装查询参数：空白条件不传（后端把「未传」当作不限制） */
-export function buildTankLevelQuery({ startDate, endDate, location, category, keyword } = {}) {
-  const params = {}
+/** 组装查询参数：空白条件不传（后端把「未传」当作不限制）；分页参数必传 */
+export function buildTankLevelQuery({ startDate, endDate, location, category, keyword, pageNum, pageSize } = {}) {
+  const params = { pageNum, pageSize }
 
   if (startDate) params.startDate = startDate
   if (endDate) params.endDate = endDate
@@ -172,15 +176,6 @@ const tankLevelLocationOptions = computed(() => {
   return options
 })
 
-function getTankLevelPageData(page = tankLevelPageNum.value) {
-  tankLevelPageNum.value = page
-  const startIndex = (tankLevelPageNum.value - 1) * tankLevelPageSize.value
-  tankLevelTableData.value = tankLevelRecords.value.slice(
-    startIndex,
-    startIndex + tankLevelPageSize.value,
-  )
-}
-
 async function fetchTankLevelRecords(options) {
   // 模板里 @change / @click 直接绑了这个函数，会把事件对象当第一个参数传进来 ——
   // 所以只有显式传 { keepPage: true } 才保持当前页，传进来别的东西一律当没传
@@ -197,6 +192,8 @@ async function fetchTankLevelRecords(options) {
         location: tankLevelLocation.value,
         category: tankLevelCategory.value,
         keyword: tankLevelKeyword.value,
+        pageNum: tankLevelPageNum.value,
+        pageSize: tankLevelPageSize.value,
       }),
     })
 
@@ -205,21 +202,22 @@ async function fetchTankLevelRecords(options) {
     }
 
     const dataList = Array.isArray(res.data?.dataList) ? res.data.dataList : []
-    tankLevelRecords.value = dataList.map(normalizeTankLevelRecord).filter(Boolean)
-    tankLevelTotal.value = tankLevelRecords.value.length
+    tankLevelTableData.value = dataList.map(normalizeTankLevelRecord).filter(Boolean)
+    tankLevelTotal.value = Number(res.data?.total) || 0
     tankLevelLoaded.value = true
 
-    if (keepPage) {
-      // 保存/删除后停在当前页，用户不会因为改了一行就被弹回第 1 页。
-      // 但页码要防越界：删掉某页最后一条后当前页可能已超出总页数，
-      // 那样表格空着、分页器却停在第 5 页，看着像数据丢了
-      const maxPage = Math.max(1, Math.ceil(tankLevelTotal.value / tankLevelPageSize.value))
-      getTankLevelPageData(Math.min(tankLevelPageNum.value, maxPage))
-    } else {
-      getTankLevelPageData(1)
+    // 页码越界兜底：删掉某页最后一条后，当前页可能已超出总页数，
+    // 那样表格空着、分页器却停在第 5 页，看着像数据丢了。
+    // 服务端只把「小于 1」的页码归一到第 1 页，越上界要在这里自己收回来。
+    const maxPage = Math.max(1, Math.ceil(tankLevelTotal.value / tankLevelPageSize.value))
+    if (tankLevelPageNum.value > maxPage) {
+      tankLevelPageNum.value = maxPage
+      return fetchTankLevelRecords({ keepPage: true })
+    }
+    if (!keepPage) {
+      tankLevelPageNum.value = Number(res.data?.pageNum) || tankLevelPageNum.value
     }
   } catch (error) {
-    tankLevelRecords.value = []
     tankLevelTableData.value = []
     tankLevelTotal.value = 0
     // 失败不置 loaded：离开再回来会重试一次，比停在一张空表上好
@@ -258,6 +256,13 @@ function ensureTankLevelLoaded() {
   fetchTankLevelRecords()
 }
 
+/** 分页器回调：只换页，不重置条件 */
+function getTankLevelPageData(page = tankLevelPageNum.value) {
+  tankLevelPageNum.value = page
+  return fetchTankLevelRecords({ keepPage: true })
+}
+
+/** 筛选条上的条件变了：回到第 1 页再查 */
 function resetTankLevelFilters() {
   tankLevelStartDate.value = getFirstDayOfCurrentYear()
   tankLevelEndDate.value = getToday()
@@ -265,6 +270,13 @@ function resetTankLevelFilters() {
   tankLevelCategory.value = ''
   tankLevelKeyword.value = ''
 
+  tankLevelPageNum.value = 1
+  return fetchTankLevelRecords()
+}
+
+/** 筛选条件变化（日期/属地/所属）→ 回到第 1 页查；关键字由模板在回车时调用 resetTankLevelFilters */
+function reloadTankLevelRecords() {
+  tankLevelPageNum.value = 1
   return fetchTankLevelRecords()
 }
 
@@ -274,8 +286,7 @@ function resetTankLevelFilters() {
 //   1. 后端业务失败也是 HTTP 200 + `success:false`，所以每个写方法都要自己判一次
 //      `success` —— 只看状态码会把「保存失败」当成功弹提示；
 //   2. 统一**抛带可读消息的 Error**，由调用方 toast（本文件不碰 UI）。
-//      写后重新拉全量而不是就地改内存里那一行：列表是前端本地分页，
-//      就地改会让「序号」和分页位置与库里对不上；带 keepPage 是为了不把用户弹回第 1 页。
+//      写后重新拉当前页而不是就地改内存里那一行：带 keepPage 是为了不把用户弹回第 1 页。
 
 /** 取后端给的业务错误消息；拿不到就用兜底文案 */
 function toWriteError(error, fallback) {
@@ -315,7 +326,6 @@ async function deleteTankLevelRecord(id) {
 
 export function useTankLevelData() {
   return {
-    tankLevelRecords,
     tankLevelTableData,
     tankLevelPageNum,
     tankLevelPageSize,
@@ -332,6 +342,7 @@ export function useTankLevelData() {
     getTankLevelPageData,
     fetchTankLevelRecords,
     fetchTankLevelLocations,
+    reloadTankLevelRecords,
     ensureTankLevelLoaded,
     resetTankLevelFilters,
     saveTankLevelRecord,

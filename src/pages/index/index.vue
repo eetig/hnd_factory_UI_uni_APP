@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { onUnload } from '@dcloudio/uni-app'
+import { onUnload, onPullDownRefresh } from '@dcloudio/uni-app'
 import { useMessage, useToast } from 'wot-design-uni'
 import dayjs from 'dayjs'
 import request from '../../api/request'
@@ -26,6 +26,7 @@ import { usePickData } from '../../composables/usePickData'
 import { useInboundData } from '../../composables/useInboundData'
 import { useGoodsMoveData } from '../../composables/useGoodsMoveData'
 import { useMaterialStockData } from '../../composables/useMaterialStockData'
+import { useEquipmentLedgerData } from '../../composables/useEquipmentLedgerData'
 import { useTankLevelData, TANK_LEVEL_CATEGORIES } from '../../composables/useTankLevelData'
 import { useTankLevelImages } from '../../composables/useTankLevelImages'
 import { useVesselList } from '../../composables/useVesselList'
@@ -258,11 +259,10 @@ watch(visibleTabs, (list) => {
   }
 }, { immediate: true })
 
-// 工单数据与筛选（与工单报工面板共享同一份数据）
+// 工单数据与筛选（2026-10-10 整改：筛选/分页都在服务端）
+// 工单报工与工单核算原先读这份数据的「全量筛选后」数组，现在各自读 workOrderSummaryRows
 const {
   tableData,
-  tableDataAll,
-  allWorkOrders,
   pageNum,
   pageSize,
   total,
@@ -279,9 +279,11 @@ const {
   productOptions,
   orderTypeOptions,
   orderNoOptions,
-  getPageData,
-  filterWorkOrders,
+  workOrderSummaryRows,
+  loadWorkOrderPage,
+  reloadWorkOrders,
   fetchWorkOrders,
+  fetchWorkOrderSummary,
   openProductDialog,
   handleProductSelected,
   clearProductFilter,
@@ -293,9 +295,8 @@ const {
   clearOrderNoFilter,
 } = useWorkOrderData()
 
-// 领料汇总数据（原辅料核算取筛选后的 pickFiltered；周统计已改为走后端汇总接口）
+// 领料汇总数据（原辅料核算取 pickSummaryRows —— 服务端按物料汇总的结果）
 const {
-  pickFiltered,
   pickTableData,
   pickPageNum,
   pickPageSize,
@@ -307,9 +308,11 @@ const {
   pickMaterialDialogVisible,
   pickMaterialFilter,
   pickMaterialOptions,
-  getPickPageData,
-  filterPickRecords,
+  pickSummaryRows,
   fetchPickRecords,
+  fetchPickSummary,
+  reloadPickRecords,
+  loadPickPage,
   openPickMaterialDialog,
   handlePickMaterialSelected,
   clearPickMaterialFilter,
@@ -365,9 +368,15 @@ const {
   tankLevelLocationOptions,
   getTankLevelPageData,
   fetchTankLevelRecords,
+  fetchTankLevelLocations,
+  reloadTankLevelRecords,
   ensureTankLevelLoaded,
   resetTankLevelFilters,
 } = useTankLevelData()
+
+// 设备数据维护：这里只取「重拉第一页」一个函数 —— 下拉刷新时用它。
+// 模块级单例，与 EquipmentMaintenancePanel 里那套是同一份状态。
+const { loadLedger } = useEquipmentLedgerData()
 
 // 录入与删除按钮的显隐（不是安全边界，后端每个写接口各自鉴权）
 const canEditTankLevel = computed(() => hasPerm('tank_level:edit'))
@@ -389,24 +398,26 @@ const TANK_LEVEL_COLUMNS = [
 const tankLevelLocationDialogVisible = ref(false)
 const tankLevelCategoryDialogVisible = ref(false)
 
+// 属地 / 所属下拉：选中与清空都算「换了筛选条件」，必须**回到第 1 页**再查 ——
+// 不回第 1 页的话，用户在第 3 页改条件后很可能落在一个已越界的页码上，看到空表
 function handleTankLevelLocationSelected(value) {
   tankLevelLocation.value = value
-  fetchTankLevelRecords()
+  reloadTankLevelRecords()
 }
 
 function clearTankLevelLocation() {
   tankLevelLocation.value = ''
-  fetchTankLevelRecords()
+  reloadTankLevelRecords()
 }
 
 function handleTankLevelCategorySelected(value) {
   tankLevelCategory.value = value
-  fetchTankLevelRecords()
+  reloadTankLevelRecords()
 }
 
 function clearTankLevelCategory() {
   tankLevelCategory.value = ''
-  fetchTankLevelRecords()
+  reloadTankLevelRecords()
 }
 
 /** 有没有筛选条件：决定空表提示语是「没查到」还是「本来就没数据」 */
@@ -472,9 +483,8 @@ function handleTankLevelThumbError(event, record) {
   tankLevelHiddenThumbs.value = { ...tankLevelHiddenThumbs.value, [key]: true }
 }
 
-// 入库汇总数据（工单核算取筛选后的 inboundFiltered；周统计已走后端汇总接口）
+// 入库汇总数据（工单核算取 inboundSummaryRows —— 服务端按物料汇总的结果）
 const {
-  inboundFiltered,
   inboundTableData,
   inboundPageNum,
   inboundPageSize,
@@ -486,22 +496,24 @@ const {
   inboundMaterialDialogVisible,
   inboundMaterialFilter,
   inboundMaterialOptions,
-  getInboundPageData,
-  filterInboundRecords,
+  inboundSummaryRows,
   fetchInboundRecords,
+  fetchInboundSummary,
+  reloadInboundRecords,
+  loadInboundPage,
   openInboundMaterialDialog,
   handleInboundMaterialSelected,
   clearInboundMaterialFilter,
 } = useInboundData()
 
-// 货物移动数据（原辅料核算的「已报工数」来源）
+// 货物移动数据（原辅料核算的「已报工数」来源；取的是服务端「按物料 + 来源库位」的汇总）
 const {
-  goodsMoveRecords,
+  goodsMoveSummaryRows,
   goodsMoveError,
   goodsMoveStartDate,
   goodsMoveEndDate,
   goodsMoveQtyMap,
-  fetchGoodsMoveRecords,
+  fetchGoodsMoveSummary,
 } = useGoodsMoveData()
 
 const imageList = ref([])
@@ -516,35 +528,20 @@ const imageDeleting = ref(false)
 // 工单原图给内嵌查看器用的地址数组（与下面的 imageList 同源）
 const workOrderViewerUrls = computed(() => imageList.value.map((item) => resolveAssetUrl(item.url)))
 
-// 工单号可选项（当前日期范围内的工单号，倒序）
-// 工单报工数据：取工单汇总页当前查出的数据，按 工单类型 + 产成品 分组，数量与产量按组求和
-const reportRows = computed(() => {
-  const rows = new Map()
-
-  for (const order of tableDataAll.value) {
-    const orderType = getReportOrderType(order?.orderNo)
-    if (!orderType) continue
-
-    const materialDesc = String(order.materialDesc ?? '').trim()
-    if (!materialDesc) continue
-
-    const key = `${orderType}|${materialDesc}`
-    let row = rows.get(key)
-
-    if (!row) {
-      row = { orderType, materialDesc, orderQty: 0, confirmedQty: 0 }
-      rows.set(key, row)
-    }
-
-    row.orderQty += Number(order.orderQty) || 0
-    row.confirmedQty += Number(order.confirmedQty) || 0
-  }
-
-  return [...rows.values()]
+// 工单报工数据：以「工单类型 + 产成品」为行、把订单数量与确认产量按组求和。
+//
+// ⚠️ 2026-10-10 整改：这一页**不是列表**，是对全量工单做 group by 的聚合表 ——
+// 分页数据喂不了它（拿第 1 页汇总只会得到前 10 条），所以分组求和搬到了服务端
+// （/api/work-order/summary-by-type-material，按工单号前缀 + 产成品分组）。
+// 前端只剩展示口径：类型识别不出的行不进表（与原实现一致）、按类型字典顺序再按品名排。
+const reportRows = computed(() =>
+  workOrderSummaryRows.value
+    .filter((row) => row.orderType)
     .map((row) => ({
-      ...row,
-      orderQty: formatQty(row.orderQty),
-      confirmedQty: formatQty(row.confirmedQty),
+      orderType: row.orderType,
+      materialDesc: row.materialName,
+      orderQty: formatQty(Number(row.orderQty) || 0),
+      confirmedQty: formatQty(Number(row.confirmedQty) || 0),
     }))
     .sort((left, right) => {
       const byType = REPORT_ORDER_TYPES.findIndex((type) => type.label === left.orderType) -
@@ -553,8 +550,8 @@ const reportRows = computed(() => {
       if (byType !== 0) return byType
 
       return left.materialDesc.localeCompare(right.materialDesc, 'zh-CN')
-    })
-})
+    }),
+)
 
 const columns = [
   { key: 'index', label: '序号', width: 'w-10', align: 'center' },
@@ -583,16 +580,16 @@ async function refreshImageList(order) {
 
 function updateCurrentOrderImages(images) {
   const normalizedImages = normalizeImageList(images)
-  const updateImages = (order) => {
-    if (String(order.orderNo) === String(currentOrderNo.value)) {
-      order.imageList = normalizedImages
-    }
+  // 只更新**当前页**里那一条：改造后前端不再持有全量工单（原先还会顺带给
+  // allWorkOrders / tableDataAll 两份内存副本打补丁），而用户点的工单必在当前页上。
+  // 图片另有 /api/work-order/image/list 兜底刷新（见 refreshImageList），不会漏。
+  const currentOrder = tableData.value.find(
+    (order) => String(order.orderNo) === String(currentOrderNo.value),
+  )
+  if (currentOrder) {
+    currentOrder.imageList = normalizedImages
   }
-
-  allWorkOrders.value.forEach(updateImages)
-  tableDataAll.value.forEach(updateImages)
   imageList.value = normalizedImages
-  filterWorkOrders()
 }
 
 async function openImageDialog(order) {
@@ -629,24 +626,54 @@ function handleImportCancel() {
 }
 
 /**
- * 导入会新增/更新四类数据（工单、领料、入库、货物移动），
- * 而它们又是工单报工、工单核算、原辅料核算、周统计的数据源 —— 因此全部重新拉取。
+ * 「数据被写过了，下次切 Tab 记得重拉」的标记。
  *
- * 注意：不能只在「返回工单汇总」按钮里刷新 —— 用户也可能直接点顶部 Tab 切走，
- * 所以用 importDirty 标记 + activeTab 监听统一处理。
+ * 两个写入口都会置位：
+ *   · 文件导入（Excel）—— 会新增/更新工单、领料、入库、货物移动四类数据；
+ *   · 图片解析确认入库 —— 同上（走的是同一条落库管线，见 useOcrConfirm）。
+ *
+ * 为什么需要它：页面是**单页 + v-show 切 Tab**，Tab 组件从不卸载，切来切去不会触发
+ * 任何生命周期钩子。而领料汇总这类面板的数据现在只在「筛条件 / 翻页 / 下拉刷新」时才查 ——
+ * 写完数据后如果用户切回面板而恰好不碰筛选条，就还停在上一次的查询结果上。
+ * 所以这里记一笔，切 Tab 时统一重拉。
+ *
+ * ⚠️ 2026-10-10 之前这个标记只服务文件导入（判断条件还写死了 prevTab === 'import'），
+ * 图片解析那条链路压根没通知过页面 —— 那条「入库成功了、汇总页看不到」的 bug 就出在这。
  */
 const importDirty = ref(false)
 
+/** 图片解析确认入库成功后置脏（事件来自 components/ImageParse.vue） */
+function handleOcrConfirmed() {
+  importDirty.value = true
+  // 落库会同时影响领料/入库/库存/周统计与三个核算页，这里直接刷一遍；
+  // 用户此时通常还停在图片解析页，切走时还会再统一重拉一次，成本可以忽略
+  refreshAllData()
+}
+
+/** 切 Tab 时要重拉的明细数据（只有 admin 能看这几页，非 admin 连接口都调不动） */
 function fetchAdminOnlyData() {
   if (!isAdmin()) return
   fetchWorkOrders()
   fetchPickRecords()
   fetchInboundRecords()
-  fetchGoodsMoveRecords()
+  fetchGoodsMoveSummary()
+}
+
+/**
+ * 三个聚合页（工单报工 / 工单核算 / 原辅料核算）的数据源。
+ *
+ * 它们的分子分母都来自明细，明细变了就必须跟着重取 —— 分页之后没人会替它们刷新。
+ */
+function refreshSummaryData() {
+  if (!isAdmin()) return
+  fetchWorkOrderSummary()
+  fetchPickSummary()
+  fetchInboundSummary()
 }
 
 function refreshAllData() {
   fetchAdminOnlyData()
+  refreshSummaryData()
   // 库存汇总也可能在这次导入里被更新
   fetchStockRecords()
   // 周统计走的是独立的汇总接口（非 admin 也要能看），不在上面的 admin 分支里
@@ -695,7 +722,8 @@ async function handleImageSelected(tempFilePaths) {
       currentIndex.value = imageList.value.length - 1
     } else {
       await fetchWorkOrders()
-      const currentOrder = allWorkOrders.value.find(
+      // 在当前页里找（用户点的工单必在当前页上）—— 前端不再持有全量工单
+      const currentOrder = tableData.value.find(
         (order) => String(order.orderNo) === String(currentOrderNo.value),
       )
       await refreshImageList(currentOrder)
@@ -862,27 +890,35 @@ const costingColumns = [
   { key: 'unreportedQty', label: '未报工数', width: 'w-20', align: 'right' },
 ]
 
-// 已报工数量：按归一化产成品名称汇总工单的确认产量（只算工单汇总筛选后的工单）
+// 已报工数量：按归一化产成品名称汇总工单的确认产量。
+//
+// ⚠️ 2026-10-10 整改：数据源从「工单汇总当前筛选后的全量工单」换成服务端按
+// 「工单类型 + 产成品」汇总的结果（workOrderSummaryRows）—— 分页之后前端已经没有全量了。
+// 汇总行按名称再累一次即可，归一化口径（normalizeMaterialName）与改造前完全一致。
 const reportedQtyMap = computed(() => {
   const map = new Map()
 
-  for (const order of tableDataAll.value) {
-    const key = normalizeMaterialName(order.materialDesc)
+  for (const row of workOrderSummaryRows.value) {
+    const key = normalizeMaterialName(row.materialName)
     if (!key) continue
 
-    map.set(key, (map.get(key) || 0) + (Number(order.confirmedQty) || 0))
+    map.set(key, (map.get(key) || 0) + (Number(row.confirmedQty) || 0))
   }
 
   return map
 })
 
 // 工单核算：以已入库产成品（入库汇总当前筛选后的物料名称去重）为行，
-// 入库数与已报工数汇总，差额为未报工数
+// 入库数与已报工数汇总，差额为未报工数。
+//
+// ⚠️ 2026-10-10 整改：行与入库数都改读服务端按物料汇总的结果（inboundSummaryRows）——
+// 入库汇总改成分页之后，前端手里只有当前页的 10 条，拿它做 group by 会得出「前 10 条的合计」。
+// 筛选条件与入库汇总面板一致（同一个日期/物料区间），所以两边看到的仍是同一批数据。
 const costingRows = computed(() => {
   const rows = new Map()
 
   // 入库数：来自入库汇总当前筛选后的数据，按物料名称去重
-  for (const record of inboundFiltered.value) {
+  for (const record of inboundSummaryRows.value) {
     const materialName = String(record.materialName ?? '').trim()
     const key = normalizeMaterialName(materialName)
     if (!key) continue
@@ -966,12 +1002,17 @@ const MATERIAL_COSTING_DERIVED = [
 
 
 // 原辅料核算：以领料汇总当前筛选后的物料名称去重为行，
-// 领料数按物料累加，已报工数取货物移动数量合计
+// 领料数按物料累加，已报工数取货物移动数量合计。
+//
+// ⚠️ 2026-10-10 整改：两个数据源都换成服务端汇总结果 ——
+// 领料数读 pickSummaryRows（按物料汇总），报工数读 goodsMoveSummaryRows（按物料 + 来源库位汇总）。
+// 分页之后前端手里只有当前页，拿它做 group by 会得出「前 10 条的合计」。
+// 下面的换算系数、派生行、差额与排序**一行没动** —— 那是报表口径，不属于数据源。
 const materialCostingRows = computed(() => {
   const rows = new Map()
 
   // 领料数：来自领料汇总当前筛选后的数据，按物料名称去重
-  for (const record of pickFiltered.value) {
+  for (const record of pickSummaryRows.value) {
     const materialName = String(record.materialName ?? '').trim()
     const key = normalizeMaterialName(materialName)
     if (!key) continue
@@ -1014,9 +1055,11 @@ const materialCostingRows = computed(() => {
     })
     const pickQty = (sourceRow?.pickQty ?? 0) * derived.qtyMultiplier
 
-    const moveSum = goodsMoveRecords.value
+    // 已报工数：按物料编码汇总货物移动数量（服务端按「物料 + 来源库位」汇总后的结果，
+    // 这里按物料编码再累一次），先求和再取绝对值
+    const moveSum = goodsMoveSummaryRows.value
+      .filter((record) => String(record.materialCode ?? '').trim() === derived.materialCode)
       .filter((record) => {
-        if (String(record.materialCode ?? '').trim() !== derived.materialCode) return false
         if (!derived.fromLocation) return true
         return String(record.fromLocation ?? '').trim() === derived.fromLocation
       })
@@ -1172,9 +1215,12 @@ const weeklyRows = computed(() => {
   })
 })
 
+// 周统计页的工单明细表 —— ⚠️ **这张表在模板里没有渲染**（模板只有上面的周统计表与图片查看器；
+// openWeeklyImageDialog / openWeeklyProductDialog / openWeeklyFilePicker 都没有调用点）。
+// 它是迁移时留下的死代码。此处**只做最小维护**：把取数改成新接口的签名，
+// 以免将来有人把它接回界面时踩到「接口已经改成分页了」这个坑。
+// 建议单独开一次变更把它整块删掉，不要混在本次整改里。
 const weeklyTableData = ref([])
-const weeklyTableDataAll = ref([])
-const allWeeklyOrders = ref([])
 const weeklyPageNum = ref(1)
 const weeklyPageSize = ref(10)
 const weeklyTotal = ref(0)
@@ -1200,15 +1246,21 @@ const weeklyImageDeleting = ref(false)
 const weeklyViewerUrls = computed(() => weeklyImageList.value.map((item) => resolveAssetUrl(item.url)))
 const weeklyProductDialogVisible = ref(false)
 const weeklyProductFilter = ref('')
+/** 产成品候选：同样改由接口给（分页之后前端不再持有全量工单） */
+const weeklyProductOptions = ref([])
 
-const weeklyProductOptions = computed(() => {
-  const names = allWeeklyOrders.value
-    .filter(matchesWeeklyDateRange)
-    .map((order) => String(order.materialDesc ?? '').trim())
-    .filter(Boolean)
-
-  return [...new Set(names)].sort((left, right) => left.localeCompare(right, 'zh-CN'))
-})
+async function fetchWeeklyProductOptions() {
+  try {
+    const res = await request.get('/api/work-order/filter-options', {
+      params: { startDate: weeklyStartDate.value, endDate: weeklyEndDate.value },
+    })
+    weeklyProductOptions.value = Array.isArray(res.data?.data?.productNames)
+      ? res.data.data.productNames
+      : []
+  } catch {
+    weeklyProductOptions.value = []
+  }
+}
 
 function normalizeWeeklyImage(image) {
   if (typeof image === 'string') {
@@ -1253,16 +1305,13 @@ async function refreshWeeklyImageList(order) {
 
 function updateWeeklyOrderImages(images) {
   const normalizedImages = normalizeWeeklyImageList(images)
-  const updateImages = (order) => {
-    if (String(order.orderNo) === String(weeklyCurrentOrderNo.value)) {
-      order.imageList = normalizedImages
-    }
+  const currentOrder = weeklyTableData.value.find(
+    (order) => String(order.orderNo) === String(weeklyCurrentOrderNo.value),
+  )
+  if (currentOrder) {
+    currentOrder.imageList = normalizedImages
   }
-
-  allWeeklyOrders.value.forEach(updateImages)
-  weeklyTableDataAll.value.forEach(updateImages)
   weeklyImageList.value = normalizedImages
-  filterWeeklyOrders()
 }
 
 async function openWeeklyImageDialog(order) {
@@ -1278,6 +1327,7 @@ async function openWeeklyImageDialog(order) {
 
 function openWeeklyProductDialog() {
   weeklyProductDialogVisible.value = true
+  fetchWeeklyProductOptions()
 }
 
 function handleWeeklyProductSelected(materialDesc) {
@@ -1339,7 +1389,7 @@ async function handleWeeklyImageSelected(tempFilePaths) {
       weeklyCurrentIndex.value = weeklyImageList.value.length - 1
     } else {
       await fetchWeeklyOrders()
-      const currentOrder = allWeeklyOrders.value.find(
+      const currentOrder = weeklyTableData.value.find(
         (order) => String(order.orderNo) === String(weeklyCurrentOrderNo.value),
       )
       await refreshWeeklyImageList(currentOrder)
@@ -1393,11 +1443,10 @@ async function deleteWeeklyImage(image) {
   }
 }
 
+/** 分页器回调：只换页，不重置条件 */
 function getWeeklyPageData(page = weeklyPageNum.value) {
   weeklyPageNum.value = page
-  const startIndex = (weeklyPageNum.value - 1) * weeklyPageSize.value
-  const endIndex = startIndex + weeklyPageSize.value
-  weeklyTableData.value = weeklyTableDataAll.value.slice(startIndex, endIndex)
+  return fetchWeeklyOrders()
 }
 
 function getWeeklyCellValue(row, columnKey, index) {
@@ -1416,74 +1465,49 @@ function normalizeWeeklyOrder(item) {
   return order
 }
 
-function getWeeklyOrderDate(order) {
-  return String(order?.planStartDate || '').slice(0, 10)
-}
-
-function sortWeeklyOrders(orders) {
-  return [...orders].sort((left, right) => {
-    const leftDate = new Date(left.planStartDate || 0).getTime()
-    const rightDate = new Date(right.planStartDate || 0).getTime()
-
-    if (leftDate !== rightDate) {
-      return rightDate - leftDate
-    }
-
-    return String(right.orderNo ?? '').localeCompare(
-      String(left.orderNo ?? ''),
-      undefined,
-      { numeric: true },
-    )
-  })
-}
-
-function matchesWeeklyDateRange(order) {
-  const planStartDate = getWeeklyOrderDate(order)
-  if (!planStartDate) return false
-  return planStartDate >= weeklyStartDate.value && planStartDate <= weeklyEndDate.value
-}
-
-function matchesWeeklyProductFilter(order) {
-  if (!weeklyProductFilter.value) return true
-  return String(order.materialDesc ?? '').trim() === weeklyProductFilter.value
-}
-
+/** 条件变了：回到第 1 页再查（这张表在模板里未渲染，但保持与其他面板一致的语义） */
 function filterWeeklyOrders() {
-  weeklyTableDataAll.value = allWeeklyOrders.value.filter(
-    (order) => matchesWeeklyDateRange(order) && matchesWeeklyProductFilter(order),
-  )
-
-  weeklyTotal.value = weeklyTableDataAll.value.length
   weeklyPageNum.value = 1
-  getWeeklyPageData()
+  return fetchWeeklyOrders()
 }
 
+/**
+ * 周统计页那张工单明细表的取数。
+ *
+ * ⚠️ 改造前是「拉全表 + 前端按日期区间/产成品过滤 + 本地 slice 分页」；
+ * 工单列表接口改成分页之后，取数必须带上 pageNum / pageSize（缺参数会被后端回 400），
+ * 过滤也一并交给服务端 —— 前端手里已经没有全量工单了。
+ */
 async function fetchWeeklyOrders() {
   weeklyLoading.value = true
   weeklyError.value = ''
 
   try {
-    const res = await request.get('/api/work-order/list')
+    const params = {
+      pageNum: weeklyPageNum.value,
+      pageSize: weeklyPageSize.value,
+    }
+    if (weeklyStartDate.value) params.startDate = weeklyStartDate.value
+    if (weeklyEndDate.value) params.endDate = weeklyEndDate.value
+    if (weeklyProductFilter.value) params.materialDesc = weeklyProductFilter.value
+
+    const res = await request.get('/api/work-order/list', { params })
     if (res.data.success === true) {
       const dataList = Array.isArray(res.data.dataList)
         ? res.data.dataList.map(normalizeWeeklyOrder).filter(Boolean)
         : []
 
-      allWeeklyOrders.value = sortWeeklyOrders(dataList)
-      filterWeeklyOrders()
+      weeklyTableData.value = dataList
+      weeklyTotal.value = Number(res.data?.total) || 0
     } else {
-      allWeeklyOrders.value = []
-      weeklyTableDataAll.value = []
       weeklyTableData.value = []
       weeklyTotal.value = 0
       weeklyError.value = res.data.msg || '工单接口返回异常，请稍后重试。'
     }
   } catch (error) {
-    allWeeklyOrders.value = []
-    weeklyTableDataAll.value = []
     weeklyTableData.value = []
     weeklyTotal.value = 0
-    weeklyError.value = error.response?.data?.msg || '工单数据加载失败，请稍后重试。'
+    weeklyError.value = error.response?.data?.msg || error.message || '工单数据加载失败，请稍后重试。'
   } finally {
     weeklyLoading.value = false
   }
@@ -2279,7 +2303,7 @@ onUnmounted(cleanupVessel)
 onUnload(cleanupVessel)
 
 // 切到压力容器 Tab 时才渲染底图（首次约 645 KB），离开时停帧
-watch(activeTab, (tab, prevTab) => {
+watch(activeTab, (tab) => {
   if (tab === 'vessel') {
     // 锁存后一直渲染，来回切 Tab 不会重新加载
     vesselImageReady.value = true
@@ -2300,10 +2324,81 @@ watch(activeTab, (tab, prevTab) => {
     fetchWeeklyStats()
   }
 
-  // 离开导入页且期间导入成功 → 刷新各数据集
-  if (prevTab === 'import' && importDirty.value) {
+  // 三个聚合页：进 Tab 时重取自己的汇总数据。
+  // 它们的行来自明细（入库 / 领料 / 工单 / 货物移动），而那几份明细随时可能被
+  // 另一端（电脑端、另一台手机、图片解析）改动 —— 进页面就实查一次，
+  // 省得又出现「数据明明有、这一页看不到」。
+  if (tab === 'report' || tab === 'costing') {
+    fetchWorkOrderSummary()
+  }
+  if (tab === 'costing') {
+    fetchInboundSummary()
+  }
+  if (tab === 'materialCosting') {
+    fetchPickSummary()
+    fetchGoodsMoveSummary()
+  }
+
+  // 离开「写入页」且期间写成功 → 刷新各数据集。
+  //
+  // ⚠️ 条件里**不再限定 prevTab === 'import'**：图片解析（imageParse）也会落库，
+  // 原先它既不发通知、这里也不认它，于是「图片解析入库 → 切到领料汇总看不到新记录」
+  // （本次整改要修的就是这条）。只要 dirty 就重拉，谁写的都算。
+  if (importDirty.value) {
     importDirty.value = false
     refreshAllData()
+  }
+})
+
+/**
+ * 下拉刷新：重拉**当前面板**的数据。
+ *
+ * ⚠️ 只能按 activeTab 分发，不能「全部重拉」—— 9 个面板的取数函数一起打出去，
+ * 每次下拉都会白打好几个与当前页面无关的接口（其中空调的还会报 403）。
+ */
+onPullDownRefresh(async () => {
+  try {
+    switch (activeTab.value) {
+      case 'workOrder':
+      case 'report':
+        await Promise.all([fetchWorkOrders(), fetchWorkOrderSummary()])
+        break
+      case 'material':
+        await Promise.all([fetchPickRecords(), fetchPickSummary()])
+        break
+      case 'inbound':
+        await Promise.all([fetchInboundRecords(), fetchInboundSummary()])
+        break
+      case 'costing':
+        await Promise.all([fetchWorkOrderSummary(), fetchInboundSummary()])
+        break
+      case 'materialCosting':
+        await Promise.all([fetchPickSummary(), fetchGoodsMoveSummary()])
+        break
+      case 'stock':
+        await fetchStockRecords()
+        break
+      case 'tankLevel':
+        await Promise.all([fetchTankLevelLocations(), fetchTankLevelRecords()])
+        break
+      case 'equipment':
+        await loadLedger()
+        break
+      case 'weekly':
+        fetchWeeklyStats()
+        break
+      case 'daily':
+      case 'vessel':
+      case 'imageParse':
+      case 'import':
+      default:
+        // 这几页没有需要重拉的列表数据（日报表是占位页，图片解析/文件导入是写入页，
+        // 压力容器体积计算是纯前端换算），直接结束下拉即可
+        break
+    }
+  } finally {
+    // 不 stop 的话加载动画会一直转 —— 放在 finally 里，接口失败也要收
+    uni.stopPullDownRefresh()
   }
 })
 </script>
@@ -2360,9 +2455,9 @@ watch(activeTab, (tab, prevTab) => {
       <div v-show="activeTab === 'workOrder'">
         <section class="panel rounded-xl border border-slate-200 bg-white shadow-sm">
           <div class="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
-            <DateField v-model="startDate" placeholder="起始日期" @change="filterWorkOrders" />
+            <DateField v-model="startDate" placeholder="起始日期" @change="reloadWorkOrders" />
             <span class="text-sm text-slate-500">至</span>
-            <DateField v-model="endDate" placeholder="结束日期" @change="filterWorkOrders" />
+            <DateField v-model="endDate" placeholder="结束日期" @change="reloadWorkOrders" />
           </div>
 
           <div class="relative">
@@ -2471,7 +2566,7 @@ watch(activeTab, (tab, prevTab) => {
               :page-size="pageSize"
               show-message
               :hide-if-one-page="false"
-              @change="(event) => getPageData(event.value)"
+              @change="(event) => loadWorkOrderPage(event.value)"
             />
           </div>
         </div>
@@ -2583,9 +2678,9 @@ watch(activeTab, (tab, prevTab) => {
       <div v-show="activeTab === 'material'">
         <section class="panel rounded-xl border border-slate-200 bg-white shadow-sm">
           <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-2.5">
-            <DateField v-model="pickStartDate" placeholder="起始日期" @change="filterPickRecords" />
+            <DateField v-model="pickStartDate" placeholder="起始日期" @change="reloadPickRecords" />
             <span class="text-sm text-slate-500">至</span>
-            <DateField v-model="pickEndDate" placeholder="结束日期" @change="filterPickRecords" />
+            <DateField v-model="pickEndDate" placeholder="结束日期" @change="reloadPickRecords" />
           </div>
 
           <div class="relative">
@@ -2683,7 +2778,7 @@ watch(activeTab, (tab, prevTab) => {
               :page-size="pickPageSize"
               show-message
               :hide-if-one-page="false"
-              @change="(event) => getPickPageData(event.value)"
+              @change="(event) => loadPickPage(event.value)"
             />
               </div>
             </div>
@@ -2706,9 +2801,9 @@ watch(activeTab, (tab, prevTab) => {
       <div v-show="activeTab === 'inbound'">
         <section class="panel rounded-xl border border-slate-200 bg-white shadow-sm">
           <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-2.5">
-            <DateField v-model="inboundStartDate" placeholder="起始日期" @change="filterInboundRecords" />
+            <DateField v-model="inboundStartDate" placeholder="起始日期" @change="reloadInboundRecords" />
             <span class="text-sm text-slate-500">至</span>
-            <DateField v-model="inboundEndDate" placeholder="结束日期" @change="filterInboundRecords" />
+            <DateField v-model="inboundEndDate" placeholder="结束日期" @change="reloadInboundRecords" />
           </div>
 
           <div class="relative">
@@ -2806,7 +2901,7 @@ watch(activeTab, (tab, prevTab) => {
               :page-size="inboundPageSize"
               show-message
               :hide-if-one-page="false"
-              @change="(event) => getInboundPageData(event.value)"
+              @change="(event) => loadInboundPage(event.value)"
             />
               </div>
             </div>
@@ -2959,6 +3054,9 @@ watch(activeTab, (tab, prevTab) => {
           <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-2.5">
             <view class="filter-search">
               <wd-icon name="search" size="14px" />
+              <!-- ⚠️ 查询改到服务端之后**只能回车 / 键盘搜索键才发请求**：
+                   原先这里还挂着 @input（逐字实时过滤），那是「前端全量 + 本地 filter」
+                   时代的做法，照搬到服务端就是「敲一个字打一次接口」。 -->
               <input
                 v-model="stockKeyword"
                 class="filter-search__input"
@@ -2966,7 +3064,6 @@ watch(activeTab, (tab, prevTab) => {
                 placeholder="物料编码 / 物料描述"
                 placeholder-class="ui-placeholder"
                 confirm-type="search"
-                @input="applyStockFilter"
                 @confirm="applyStockFilter"
               />
             </view>
@@ -3072,15 +3169,20 @@ watch(activeTab, (tab, prevTab) => {
       </div>
 
       <div v-show="activeTab === 'imageParse'">
-        <ImageParse />
+        <!-- 图片解析：确认入库成功后置脏（@confirmed），切回汇总页时统一重拉 ——
+             「入库成功了、领料汇总却看不到」那条 bug 的另一半就在这里 -->
+        <ImageParse @confirmed="handleOcrConfirmed" />
       </div>
 
       <div v-show="activeTab === 'weekly'">
         <section class="panel rounded-xl border border-slate-200 bg-white shadow-sm">
           <div class="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
-            <DateField v-model="weeklyStartDate" placeholder="起始日期" @change="filterWeeklyOrders" />
+            <!-- 日期一变就重取汇总数 —— 由下面那个 watch([weeklyStartDate, weeklyEndDate]) 负责，
+                 模板上不必再挂 @change（原先挂的 filterWeeklyOrders 是给那张**未渲染**的
+                 工单明细表用的，每次改日期都会白白多打一个工单接口） -->
+            <DateField v-model="weeklyStartDate" placeholder="起始日期" />
             <span class="text-sm text-slate-500">至</span>
-            <DateField v-model="weeklyEndDate" placeholder="结束日期" @change="filterWeeklyOrders" />
+            <DateField v-model="weeklyEndDate" placeholder="结束日期" />
           </div>
 
           <view class="relative p-6">
@@ -3252,13 +3354,13 @@ watch(activeTab, (tab, prevTab) => {
             <DateField
               v-model="tankLevelStartDate"
               placeholder="起始日期"
-              @change="fetchTankLevelRecords"
+              @change="reloadTankLevelRecords"
             />
             <span class="text-sm text-slate-500">至</span>
             <DateField
               v-model="tankLevelEndDate"
               placeholder="结束日期"
-              @change="fetchTankLevelRecords"
+              @change="reloadTankLevelRecords"
             />
 
             <FilterHeaderCell
@@ -3287,7 +3389,7 @@ watch(activeTab, (tab, prevTab) => {
                 placeholder="物料 / 容器名称 / 容器编号"
                 placeholder-class="ui-placeholder"
                 confirm-type="search"
-                @confirm="fetchTankLevelRecords"
+                @confirm="reloadTankLevelRecords"
               />
             </view>
 

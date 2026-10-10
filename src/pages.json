@@ -10,7 +10,8 @@
       "path": "pages/index/index",
       "style": {
         "navigationBarTitleText": "HND生产助手",
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
       }
     },
     {

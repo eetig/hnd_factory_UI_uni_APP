@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'wot-design-uni'
 import { hasPerm } from '../api/auth'
 import { resolveAssetUrl } from '../api/config'
@@ -12,53 +12,39 @@ import EquipmentFormDialog from './EquipmentFormDialog.vue'
 // 使用场景是「拿着手机到设备旁边/对着图纸逐个核对」，所以做成
 // **搜索 → 卡片 → 点开弹层改**（弹层见 EquipmentFormDialog）。
 //
-// 搜索在前端做（台账 92 行一次拿全）—— 现场网络未必好，敲一个字打一次接口会很难用。
+// ⚠️ 2026-10-10 统一整改后，**搜索与分页都在服务端**（原来是一次拉全表 92 行 + 前端 filter
+// + 前端分段渲染）。所以：
+//   · 搜索改成**回车 / 键盘搜索键才发请求**，不做逐字实时过滤 ——
+//     逐字过滤会把「敲一个字打一次接口」做实，正是当初把搜索放前端要躲开的事；
+//   · 「显示更多」改成**取下一页并追加**，不再是本地 slice 出前 20 张卡片。
+//
+// 手机端仍然不用分页器（那是桌面表格的形态，小屏上点页码很难受）。
 
 const toast = useToast()
-const { rows, loading, loadLedger, setLedgerEnabled } = useEquipmentLedgerData()
-
-const keyword = ref('')
-const onlyEnabled = ref(false)
-const loadError = ref('')
-
-const filtered = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  return rows.value.filter((row) => {
-    if (onlyEnabled.value && row.enabled !== 1) return false
-    if (!kw) return true
-    return [row.equipmentCode, row.equipmentName, row.nickname, row.spec, row.workshop]
-      .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(kw))
-  })
-})
+const {
+  rows,
+  total,
+  loading,
+  loadError,
+  keyword,
+  onlyEnabled,
+  hasMore,
+  loadLedger,
+  loadMoreLedger,
+  applyLedgerFilters,
+  setLedgerEnabled,
+} = useEquipmentLedgerData()
 
 const canEdit = computed(() => hasPerm('equipment:edit'))
 
-/**
- * 一次只渲染 20 张卡片，底部「显示更多」再放。
- *
- * 手机端不用分页器（那是桌面表格的形态，小屏上点页码很难受），
- * 但也不能一次把 92 张铺出来 —— 每张卡片都带一张底图缩略图，一次性渲染会明显卡顿。
- */
-const visibleCount = ref(20)
-const visible = computed(() => filtered.value.slice(0, visibleCount.value))
-const hasMore = computed(() => filtered.value.length > visibleCount.value)
-
-function showMore() {
-  visibleCount.value += 20
+function toggleOnlyEnabled() {
+  onlyEnabled.value = !onlyEnabled.value
+  applyLedgerFilters()
 }
 
-// 筛选条件一变就收回到 20 张，否则刚筛完还停在几百张的状态
-watch([keyword, onlyEnabled], () => {
-  visibleCount.value = 20
-})
-
-onMounted(async () => {
-  try {
-    await loadLedger()
-  } catch {
-    loadError.value = '取不到设备台账（接口不可用），请稍后重试。'
-  }
+onMounted(() => {
+  // loadLedger 自己吞错误并落到 loadError，这里不必再包 try
+  loadLedger()
 })
 
 // ===== 弹层 =====
@@ -77,7 +63,8 @@ function openCreate() {
 }
 
 async function onSaved() {
-  await loadLedger(true)
+  // 写完重新取第一页：列表数据在服务端，本地那份不会有新行
+  await loadLedger()
 }
 
 async function toggleEnabled(row) {
@@ -85,7 +72,8 @@ async function toggleEnabled(row) {
     await setLedgerEnabled(row.id, row.enabled !== 1)
     toast.success(row.enabled === 1 ? '已停用' : '已启用')
   } catch (e) {
-    toast.error(e?.data?.msg || e?.message || '操作失败')
+    // 请求层的错误形状是 error.response.data.msg（见 api/request.js），不是 e.data.msg
+    toast.error(e?.response?.data?.msg || e?.message || '操作失败')
   }
 }
 
@@ -98,29 +86,33 @@ function thumbOf(row) {
 <template>
   <view class="eq-page">
     <view class="eq-page__bar">
+      <!-- 回车 / 键盘搜索键才查（服务端搜索），不做逐字实时过滤 -->
       <input
         v-model="keyword"
         class="eq-page__search"
         placeholder="位号 / 名称 / 昵称 / 规格 / 车间"
         placeholder-style="color: var(--ui-slate-400)"
+        confirm-type="search"
+        @confirm="applyLedgerFilters"
       />
-      <view class="eq-page__toggle" :class="{ 'is-on': onlyEnabled }" @click="onlyEnabled = !onlyEnabled">
+      <view class="eq-page__toggle" :class="{ 'is-on': onlyEnabled }" @click="toggleOnlyEnabled">
         <text>只看启用的</text>
       </view>
     </view>
 
     <view class="eq-page__count">
-      <text>{{ filtered.length }} / {{ rows.length }} 条</text>
+      <!-- 「已加载 / 总共」：分页在服务端做，本地只有已取回来的那几页 -->
+      <text>已加载 {{ rows.length }} / 共 {{ total }} 条</text>
       <text v-if="canEdit" class="eq-page__add" @click="openCreate">＋ 新增设备</text>
     </view>
 
     <view v-if="loadError" class="eq-page__error">{{ loadError }}</view>
 
     <view v-if="loading && !rows.length" class="eq-page__empty">正在加载…</view>
-    <view v-else-if="!filtered.length" class="eq-page__empty">没有符合条件的设备</view>
+    <view v-else-if="!rows.length" class="eq-page__empty">没有符合条件的设备</view>
 
     <view
-      v-for="row in visible"
+      v-for="row in rows"
       :key="row.id"
       class="eq-card"
       :class="{ 'is-off': row.enabled !== 1 }"
@@ -151,8 +143,8 @@ function thumbOf(row) {
       </view>
     </view>
 
-    <view v-if="hasMore" class="eq-page__more" @click="showMore">
-      <text>显示更多（还有 {{ filtered.length - visibleCount }} 条）</text>
+    <view v-if="hasMore" class="eq-page__more" @click="loadMoreLedger">
+      <text>{{ loading ? '加载中…' : `显示更多（还有 ${total - rows.length} 条）` }}</text>
     </view>
 
     <EquipmentFormDialog v-model="dialogOpen" :record="current" @saved="onSaved" />

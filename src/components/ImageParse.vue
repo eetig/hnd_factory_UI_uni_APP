@@ -16,6 +16,14 @@ import {
 // 一次最多上传的张数（总数上限，不是单次选择上限）
 const MAX_COUNT = 5
 
+// 确认入库**成功**后通知调用方（index.vue）。
+//
+// ⚠️ 这个事件是本次 bug 的另一半：本组件入库成功后只改自己卡片上的文案，
+// 页面那边（领料汇总 / 入库汇总 / 库存）不会知道数据被写过 —— 而页面是 v-show 常驻的单页，
+// 切 Tab 不会重新挂载、也就不会重新拉数据，于是「入库成功了，汇总页却看不到」。
+// 页面收到事件后标记数据已脏，切回汇总页时重拉。
+const emit = defineEmits(['confirmed'])
+
 // 与 myocr 的 ocr.max-image-bytes 默认值保持一致，避免选完才在服务端被拒
 const MAX_SIZE = 10 * 1024 * 1024
 
@@ -737,6 +745,8 @@ async function submitConfirm(image) {
       filePath: image.filePath,
     })
     image.confirm = { status: 'done', message: buildConfirmMessage(data, merges) }
+    // 落库成功了才通知父组件（失败不要通知：那会让页面白刷一次）
+    emit('confirmed', { billType, documentNo: String(image.table.doc.documentNo).trim() })
   } catch (error) {
     image.confirm = { status: 'error', message: error?.message || '入库失败' }
   }
