@@ -329,7 +329,7 @@ $radius-xl: 24rpx;
 //    这里的 position: relative 只为让 top 生效，z-index 仍为 auto，故不产生层叠上下文。
 @mixin panel-in {
   position: relative;
-  animation: ui-panel-in 320ms $ui-ease;
+  animation: ui-panel-in 240ms $ui-ease;
 }
 
 // 列表分隔线。

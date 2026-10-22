@@ -222,5 +222,13 @@ function handleSelect(value) {
 .dd__item.is-selected .dd__label {
   font-weight: 500;
 }
+
+/* 按下态（2026-10-22 变更-152，apple-design §1「响应落在按下」）
+ * 这条规则之前不存在：点下去只有系统默认的闪烁，没有"我按到了"的即时反馈。
+ * 0.97 / 100ms 与 glass-button 的按下态同一条曲线 —— 全仓只用一个手感。 */
+.dd__anchor:active {
+  transform: scale(0.97);
+  transition: transform 100ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 </style>
 

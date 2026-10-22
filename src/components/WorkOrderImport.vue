@@ -487,7 +487,7 @@ function handleBackToList() {
     />
 
     <section
-      class="relative cursor-pointer rounded-xl border-2 border-dashed bg-white p-12 transition"
+      class="relative cursor-pointer rounded-xl border-2 border-dashed bg-white p-12 transition active:scale-[0.99]"
       :class="dragActive ? 'border-gold-500 bg-gold-50' : 'border-slate-300 hover:border-gold-400'"
       @click="openFilePicker"
       @dragover.prevent="dragActive = true"
@@ -755,4 +755,5 @@ function handleBackToList() {
     transform: translateX(-100%);
   }
 }
+
 </style>
