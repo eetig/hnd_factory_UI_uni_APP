@@ -1,7 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBackPress, onUnload, onPullDownRefresh } from '@dcloudio/uni-app'
-import { useMessage, useToast } from 'wot-design-uni'
+import { useMessage } from 'wot-design-uni'
+import { useHapticToast } from '../../composables/useHapticToast.js'
 import dayjs from 'dayjs'
 import request from '../../api/request'
 import { uploadFiles } from '../../api/upload'
@@ -70,7 +71,7 @@ const envTip = `${ENV_TIP} · ${ACTIVE_ENV.apiOrigin || '同源入口'}`
 // 本页调用 useToast()/useMessage() 会 provide 出选项 ref，
 // 模板里的 <wd-toast/>、<wd-message-box/> 以及子组件（ImageParse 等）
 // 再调用同名方法时会 inject 到同一份状态 —— 所以整页共用一个提示通道。
-const toast = useToast()
+const toast = useHapticToast()
 const message = useMessage()
 
 // 主题：颜色本体是 App.vue 里的两组 CSS 变量，这里只拿「当前是哪套 + 切一下」。

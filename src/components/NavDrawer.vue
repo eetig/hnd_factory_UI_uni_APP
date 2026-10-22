@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
+import { haptics } from '../utils/haptics.js'
 
 /*
  * 左侧抽屉的**外壳**：弹层、跟手拖拽、开合吸附、底层锁滚动。
@@ -205,10 +206,15 @@ function endDrag(e) {
      *    （鼠标点不经过 touchend、settling 一直是假，所以桌面上永远复现不出来。）
      *    真拖动过（axis 定过向）才需要 settle() 把位移补到端点。
      */
-    if (!wasTap) settle()
+    if (!wasTap) {
+      settle()
+      // 触感：真拖动落位才算一次完成；纯点按（wasTap）只是把抽屉叫回来，不震
+      haptics.settle()
+    }
   } else {
     progress.value = 0
     settle()
+    haptics.settle() // 收起到位：手指能感觉到"关上了"
     unloadWhenClosed()
   }
 }
@@ -253,6 +259,7 @@ function close() {
   if (dragging.value || !visible.value || !progress.value) return
   progress.value = 0
   settle()
+    haptics.settle() // 收起到位：手指能感觉到"关上了"
   unloadWhenClosed()
 }
 
