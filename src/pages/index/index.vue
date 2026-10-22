@@ -4674,7 +4674,7 @@ onPullDownRefresh(async () => {
 
 .drawer__eyebrow {
   color: $ui-accent-text;
-  font-size: 20rpx;
+  font-size: 22rpx;
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -4792,7 +4792,7 @@ onPullDownRefresh(async () => {
   display: block;
   margin-top: 4rpx;
   color: $ui-text-3;
-  font-size: 20rpx;
+  font-size: 22rpx;
   text-align: center;
 }
 
