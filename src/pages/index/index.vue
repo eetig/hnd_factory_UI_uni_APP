@@ -4475,7 +4475,7 @@ onPullDownRefresh(async () => {
   align-items: center;
   justify-content: center;
   border: 1px solid $ui-border;
-  border-radius: 26rpx;
+  border-radius: $ui-radius-md;
   background-color: $ui-raise;
   color: $ui-text-2;
   transition: background-color $ui-dur $ui-ease, transform 160ms $ui-ease;
@@ -4651,7 +4651,7 @@ onPullDownRefresh(async () => {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 26rpx;
+  border-radius: $ui-radius-md;
   background: linear-gradient(135deg, $ui-accent, $ui-accent-2);
   color: $ui-on-accent;
   font-size: 24rpx;
@@ -4728,7 +4728,7 @@ onPullDownRefresh(async () => {
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border-radius: 18rpx;
+    border-radius: $ui-radius-md;
     background-color: $ui-raise-2;
   }
 
@@ -5496,7 +5496,7 @@ onPullDownRefresh(async () => {
   justify-content: space-between;
   gap: 8px;
   padding: 9px 16px;
-  border-radius: 999px;
+  border-radius: $ui-radius-pill;
   background-color: $ui-surface-2;
   box-shadow: 0 0 0 1px $ui-border inset;
   color: $ui-text;

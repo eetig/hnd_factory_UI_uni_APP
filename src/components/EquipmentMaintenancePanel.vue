@@ -214,7 +214,7 @@ function thumbOf(row) {
   font-size: 26rpx;
   color: var(--ui-slate-900);
   background: var(--ui-slate-50);
-  border-radius: 36rpx;
+  border-radius: $ui-radius-lg;
 }
 
 .eq-page__toggle {
@@ -224,7 +224,7 @@ function thumbOf(row) {
   font-size: 24rpx;
   color: var(--ui-slate-500);
   border: 1rpx solid var(--ui-slate-200);
-  border-radius: 36rpx;
+  border-radius: $ui-radius-lg;
 }
 
 .eq-page__toggle.is-on {
@@ -250,7 +250,7 @@ function thumbOf(row) {
   font-size: 24rpx;
   color: var(--ui-amber-800);
   background: var(--ui-amber-100);
-  border-radius: 12rpx;
+  border-radius: $ui-radius-sm;
 }
 
 .eq-page__empty {
@@ -267,7 +267,7 @@ function thumbOf(row) {
   color: var(--ui-gold-600);
   text-align: center;
   border: 1rpx dashed var(--ui-slate-200);
-  border-radius: 16rpx;
+  border-radius: $ui-radius-sm;
 }
 
 .eq-card {
@@ -278,7 +278,7 @@ function thumbOf(row) {
   padding: 20rpx;
   background: var(--ui-white);
   border: 1rpx solid var(--ui-slate-200);
-  border-radius: 16rpx;
+  border-radius: $ui-radius-sm;
 }
 
 .eq-card.is-off {
@@ -289,7 +289,7 @@ function thumbOf(row) {
   width: 112rpx;
   height: 112rpx;
   border: 1rpx solid var(--ui-slate-200);
-  border-radius: 12rpx;
+  border-radius: $ui-radius-sm;
 }
 
 .eq-card__thumb--empty {

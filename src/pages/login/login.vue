@@ -204,7 +204,7 @@ async function handleLogin() {
     height: 88rpx;
     align-items: center;
     justify-content: center;
-    border-radius: 26rpx;
+    border-radius: $ui-radius-md;
     background: linear-gradient(135deg, $ui-accent, $ui-accent-2);
     color: $ui-on-accent;
     font-size: 24rpx;

@@ -310,7 +310,7 @@ function handlePickDrawing(source) {
   width: 160rpx;
   height: 160rpx;
   border: 1rpx solid var(--ui-slate-200);
-  border-radius: 12rpx;
+  border-radius: $ui-radius-sm;
 }
 
 .eq-form__thumb--empty {

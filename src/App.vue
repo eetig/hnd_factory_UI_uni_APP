@@ -93,6 +93,34 @@ page {
   }
 }
 
+/* ===== 减少动效（2026-10-22，apple-design 第 14 节）=====
+   系统开了「减少动态效果」时，把过渡与动画压到近乎瞬时。
+   本仓有 38 处 transition、4 处 @keyframes（面板入场、抽屉吸附都是位移 + 淡入），
+   这类动效对前庭敏感的人会引起眩晕。
+
+   ⚠️ 用 1ms 而不是 0：有地方依赖 transitionend（抽屉吸附、弹层关闭），
+      时长写 0 时部分 WebView 不发事件，逻辑会卡在"等动画结束"。
+   ⚠️ 只压时长、不改属性：颜色/透明度仍会瞬间变化，观感是"直接到位"，
+      而不是"点了没反应"——后者会让人以为点空了。
+   ⚠️ JS 驱动的时长（NavDrawer 的 DRAWER_SNAP_MS）不受这条影响，
+      它只决定何时清理状态，早晚都不影响可用性。 */
+@media (prefers-reduced-motion: reduce) {
+  view,
+  text,
+  button,
+  image,
+  scroll-view,
+  .panel,
+  .drawer,
+  .pager-dock,
+  .wd-popup,
+  .wd-popup::before {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 // ===== 浅色：只覆盖同一组变量，结构 / 圆角 / 动效全部复用 =====
 // 挂在各页面根 view 上（类名由 src/composables/useTheme.js 提供）。
 .theme-light {

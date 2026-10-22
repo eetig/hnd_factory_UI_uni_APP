@@ -38,7 +38,7 @@ const { isLight, toggleTheme } = useTheme()
   align-items: center;
   justify-content: center;
   border: 1px solid $ui-border;
-  border-radius: 26rpx;
+  border-radius: $ui-radius-md;
   background-color: $ui-raise;
   transition: background-color $ui-dur $ui-ease, transform 160ms $ui-ease;
 
