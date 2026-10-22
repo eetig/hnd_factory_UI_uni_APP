@@ -2228,7 +2228,12 @@ const vesselSpecs = computed(() => {
 
   // 数据表的铭牌全容积。**只作对照、不参与计算** —— 它与上面那个按几何算出的总容积对不上，
   // 所以标签里必须带「铭牌」二字，否则两个容积并排会被当成程序算错了一个
-  const nameplateVolume = selectedVessel.value.nameplateVolume
+  // ⚠️ 必须走上面那个已经兜过 null 的 `raw`（2026-10-22 修：真机首屏崩过一次）。
+  //    `selectedVessel` 在清单还没回来的那一帧就是 null（见它自己的注释），
+  //    直接 `.value.nameplateVolume` 会在**首屏渲染**抛
+  //    "Cannot read property 'nameplateVolume' of null"，整页报 Vue warn。
+  //    本地联调时清单来得快、几乎撞不上；切到线上（首屏要等网络）就必现。
+  const nameplateVolume = raw.nameplateVolume
   if (nameplateVolume) {
     items.push({ label: '铭牌全容积', value: `${nameplateVolume} m³` })
   }
