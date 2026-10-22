@@ -737,7 +737,7 @@ function handleBackToList() {
   min-width: 110px;
   height: 6px;
   overflow: hidden;
-  border-radius: $ui-radius-pill;
+  border-radius: 999px;
   background: linear-gradient(90deg, var(--ui-accent), var(--ui-accent-2));
   animation: loader-bar-animation 1.6s ease-in-out infinite;
 }
