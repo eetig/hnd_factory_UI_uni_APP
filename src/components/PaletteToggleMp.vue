@@ -26,24 +26,23 @@ const layerRef = ref(null)
 const current = computed(() => APP_PALETTES.find((p) => p.key === palette.value) || APP_PALETTES[0])
 const next = computed(() => APP_PALETTES[(APP_PALETTES.findIndex((p) => p.key === palette.value) + 1) % APP_PALETTES.length])
 
-/** 动画期间不响应重复点击 */
-const busy = ref(false)
 
 async function onClick() {
-  if (busy.value) return
-  busy.value = true
+  /*
+   * 同 ThemeToggle：**点击立即生效，动画只是装饰**（无 busy 锁）。
+   * 见 ThemeToggle 里的说明 —— busy 锁会让动画延迟变成丢点击。
+   */
+  togglePalette()
+  toast.show(`已切到${next.value.label}`)
   try {
     await layerRef.value?.revealFrom({
       selector: '.palette-toggle',
       instance,
-      switchNow: togglePalette,
+      switchNow: () => {},
       targetColor: next.value.key === 'violet' ? '#FBFAFF' : '#FFFAF6',
     })
-    toast.show(`已切到${next.value.label}`)
   } catch {
-    togglePalette()
-  } finally {
-    busy.value = false
+    // 动画失败无所谓：配色已经切了
   }
 }
 </script>

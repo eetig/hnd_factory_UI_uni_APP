@@ -29,25 +29,30 @@ const { isLight, toggleTheme } = useTheme()
  */
 const instance = getCurrentInstance()?.proxy
 const layerRef = ref(null)
-const busy = ref(false)
 
 async function onClick() {
-  if (busy.value) return
-  busy.value = true
+  /*
+   * 没有 busy 锁（2026-10-23，变更-170 第六版）。
+   *
+   * 之前的写法是"动画没跑完就不接受点击"，于是**动画链路的任何延迟都会变成丢点击**：
+   *   · `await anim.finished` 可能永不 resolve
+   *   · H5 上 selectorQuery 的回调不来，要多等 600ms 超时
+   * 修了三轮，每次都换一种丢法 —— 说明问题不在某一条链路，而在"用动画结果决定点击是否生效"
+   * 这个设计本身。现在改成：**点击立即生效，动画只是装饰**；重叠时后一次覆盖前一次。
+   */
+  toggleTheme()
   try {
-    // 圆里滚的是**新主题**：切换由揭露层在合适的时机执行（有 VT 时在 VT 回调里）
     await layerRef.value?.revealFrom({
       selector: '.theme-toggle',
       instance,
-      switchNow: toggleTheme,
+      // 圆里滚的是**新**主题：动画自己会在合适时机再切一次吗？不 —— 传 noop，
+      // 因为主题已经在上面切完了，圆只是把新界面"盖开"。
+      switchNow: () => {},
       targetColor: isLight.value ? '#191320' : '#FFFAF6',
-      // 当前是浅色 ⇒ 目标是深色 ⇒ 走"圆收起"（element-plus 的方向不对称）
       goDark: isLight.value,
     })
   } catch {
-    toggleTheme()
-  } finally {
-    busy.value = false
+    // 动画失败无所谓：主题已经切了
   }
 }
 </script>

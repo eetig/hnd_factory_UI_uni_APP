@@ -140,11 +140,17 @@ async function revealFrom({ selector, instance, switchNow, targetColor, goDark =
             pseudoElement: goDark ? '::view-transition-old(root)' : '::view-transition-new(root)',
           },
         )
+        /*
+         * ⚠️ 不要 `await anim.finished`：伪元素动画的 finished 可能永不 resolve，
+         * 于是按钮的 busy 一直为 true ⇒ "第一次点有效、第二次点没反应"（实测踩过）。
+         * 用定时器等一个确定的时长即可。
+         */
         try {
-          await anim?.finished
+          anim?.finished?.catch?.(() => {})
         } catch {
-          /* 被打断也继续 */
+          /* ignore */
         }
+        await new Promise((r) => setTimeout(r, duration + 60))
         return 'view-transition'
       } catch {
         // 掉到下面的放大圆（applyOnce 保证不会重复切）

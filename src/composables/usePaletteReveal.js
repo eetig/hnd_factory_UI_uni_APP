@@ -153,6 +153,18 @@ export function queryNodeRect(selector, instance) {
     return null
   }
 
+  /*
+   * H5 先走 document（同步、零等待）。
+   *
+   * 2026-10-23 实测：H5 上 `uni.createSelectorQuery()` 存在但 `.exec()` 的回调
+   * **永远不来** ⇒ 要等 600ms 超时才兜底到 document ⇒ 整条链路约 1s，
+   * 表现就是"连着点两下、第二下没反应"（busy 还没释放）。
+   */
+  // #ifdef H5
+  const direct = fromDocument()
+  if (direct) return Promise.resolve(direct)
+  // #endif
+
   return new Promise((resolve) => {
     let settled = false
     const settle = (rect) => {
