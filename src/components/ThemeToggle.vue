@@ -32,27 +32,24 @@ const layerRef = ref(null)
 
 async function onClick() {
   /*
-   * 没有 busy 锁（2026-10-23，变更-170 第六版）。
+   * 没有 busy 锁：**点一下立即交给揭露层**（它保证必切，见 CircularRevealLayer 的看门狗）。
    *
-   * 之前的写法是"动画没跑完就不接受点击"，于是**动画链路的任何延迟都会变成丢点击**：
-   *   · `await anim.finished` 可能永不 resolve
-   *   · H5 上 selectorQuery 的回调不来，要多等 600ms 超时
-   * 修了三轮，每次都换一种丢法 —— 说明问题不在某一条链路，而在"用动画结果决定点击是否生效"
-   * 这个设计本身。现在改成：**点击立即生效，动画只是装饰**；重叠时后一次覆盖前一次。
+   * 关键：switchNow 必须交给揭露层在 **VT 回调里**执行 ——
+   * 上一版为了"稳妥"先在这里 toggleTheme() 再播动画，结果 VT 拍下的"新快照"
+   * 其实等于旧画面（主题已经切完了），圆里滚不出新主题，看起来像"点了没反应"。
    */
-  toggleTheme()
   try {
     await layerRef.value?.revealFrom({
       selector: '.theme-toggle',
       instance,
-      // 圆里滚的是**新**主题：动画自己会在合适时机再切一次吗？不 —— 传 noop，
-      // 因为主题已经在上面切完了，圆只是把新界面"盖开"。
-      switchNow: () => {},
+      switchNow: toggleTheme,
       targetColor: isLight.value ? '#191320' : '#FFFAF6',
+      // 目标是深色 ⇒ 用"圆收起"（element-plus 的方向不对称）
       goDark: isLight.value,
     })
   } catch {
-    // 动画失败无所谓：主题已经切了
+    // 极端情况兜底：揭露层彻底不可用时也要切
+    toggleTheme()
   }
 }
 </script>

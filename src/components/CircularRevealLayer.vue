@@ -95,6 +95,15 @@ async function revealFrom({ selector, instance, switchNow, targetColor, goDark =
     return 'no-anim'
   }
 
+  /*
+   * 看门狗（2026-10-23，变更-170 第七版）：200ms 内还没 apply 就强切。
+   *
+   * 为什么需要：切换动作现在是"在 VT 回调里执行"，这是**唯一能实现
+   * '圆里滚新主题'** 的做法；但 VT 回调在某些内核/时序下可能迟迟不来。
+   * 有这道保险，"点了没反应"这类问题从设计上就不会再出现（applyOnce 幂等）。
+   */
+  const watchdog = setTimeout(() => applyOnce(), 200)
+
   const mode = await startReveal({
     selector,
     instance,
@@ -106,10 +115,18 @@ async function revealFrom({ selector, instance, switchNow, targetColor, goDark =
   })
   if (mode === 'no-anim') {
     // 拿不到几何：无动画直接切（使用方要求：不能报错卡死）
+    clearTimeout(watchdog)
     applyOnce()
     return 'no-anim'
   }
-  return pending
+  try {
+    const result = await pending
+    return result
+  } finally {
+    // 动画收尾之后再清：保证 VT 迟迟不 ready 时看门狗仍然生效
+    clearTimeout(watchdog)
+    applyOnce()
+  }
 
   // ---- 内部 ----
   async function playWithGeo(geo) {

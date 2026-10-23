@@ -29,20 +29,19 @@ const next = computed(() => APP_PALETTES[(APP_PALETTES.findIndex((p) => p.key ==
 
 async function onClick() {
   /*
-   * 同 ThemeToggle：**点击立即生效，动画只是装饰**（无 busy 锁）。
-   * 见 ThemeToggle 里的说明 —— busy 锁会让动画延迟变成丢点击。
+   * 同 ThemeToggle：没有 busy 锁，切换交给揭露层在 VT 回调里做
+   * （先切再播会让 VT 的新快照=旧画面，圆里看不到新配色）。
    */
-  togglePalette()
-  toast.show(`已切到${next.value.label}`)
   try {
     await layerRef.value?.revealFrom({
       selector: '.palette-toggle',
       instance,
-      switchNow: () => {},
+      switchNow: togglePalette,
       targetColor: next.value.key === 'violet' ? '#FBFAFF' : '#FFFAF6',
     })
+    toast.show(`已切到${next.value.label}`)
   } catch {
-    // 动画失败无所谓：配色已经切了
+    togglePalette()
   }
 }
 </script>
