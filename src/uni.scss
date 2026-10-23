@@ -90,9 +90,9 @@ $ui-shadow-strong: var(--ui-shadow-strong); // 大投影（卡片、弹层）
 // 饱和增强借光。场景 token 见 @mixin scene-bg，材质见 @mixin glass。
 $ui-scene-bg: var(--ui-scene-bg);           // 场景底色
 // 场景是**平底 + 光斑**，没有"边缘压暗"那一层了 —— 原因见 theme-dark-vars 里的说明。
-$ui-scene-blob-1: var(--ui-scene-blob-1);   // 光斑：月光钢蓝（深）
-$ui-scene-blob-2: var(--ui-scene-blob-2);   // 光斑：月光（亮）
-$ui-scene-blob-3: var(--ui-scene-blob-3);   // 光斑：香槟暖点缀
+$ui-scene-blob-1: var(--ui-scene-blob-1);   // 弥散团 1：淡紫 #BBADE6（2026-10-23 换色）
+$ui-scene-blob-2: var(--ui-scene-blob-2);   // 弥散团 2：暖琥珀 #FEC96D
+$ui-scene-blob-3: var(--ui-scene-blob-3);   // 弥散团 3：灰粉 #E2ADB4
 $ui-glass-fill: var(--ui-glass-fill);       // 玻璃膜（无色）
 $ui-glass-fill-hover: var(--ui-glass-fill-hover);
 $ui-glass-line: var(--ui-glass-line);       // 玻璃描边
@@ -372,10 +372,13 @@ $radius-xl: 24rpx;
   //    渐变，页面从上到下会从 rgb(243,243,245) 走到 rgb(227,228,233) —— 页面自己的
   //    下半截就与上半截不是一个色了。而 .page 是整页高度，长表格下这条渐变会被拉得
   //    很长，底部"发暗"更明显。现在改成平底：整页一个色，光斑负责层次。
-  --ui-scene-bg: #0b1322;
-  --ui-scene-blob-1: rgba(51, 81, 122, 0.42);
-  --ui-scene-blob-2: rgba(124, 156, 196, 0.26);
-  --ui-scene-blob-3: rgba(228, 184, 99, 0.1);
+  // 2026-10-23（变更-169）：深色也换成同一组三色的"压暗版" ——
+  // 底色从冷蓝夜景（#0b1322）换成暖黑紫（#191320），否则一会儿暖粉一会儿冷蓝会割裂。
+  // α 比浅色低一档（0.16~0.22）：深底上同样的 α 会显得更亮、更容易抢内容。
+  --ui-scene-bg: #191320;
+  --ui-scene-blob-1: rgba(187, 173, 230, 0.22); // 淡紫
+  --ui-scene-blob-2: rgba(254, 201, 109, 0.16); // 暖琥珀
+  --ui-scene-blob-3: rgba(226, 173, 180, 0.18); // 灰粉
   // ---- 表面：玻璃是无色的，只有一点点白 ----
   // --ui-surface 是**不透明兜底**（小程序端、以及没上模糊的浮层），要保留一个实色。
   --ui-bg: var(--ui-scene-bg);
@@ -514,12 +517,15 @@ $radius-xl: 24rpx;
 @mixin theme-light-vars {
   // ---- 场景：浅色是「轻量版」----
   // 玻璃在 #f2f3f7 白底上做不出深色那样的透光效果（规范自己也禁止纯色平面背景，
-  // 但它的整套配方都是为夜景写的）。所以浅色不照搬，只保留最低限度的"场景起伏"：
-  // 底仍是使用方认可的浅灰，光斑压到很淡 —— 给玻璃一点可折射的东西就够了。
-  --ui-scene-bg: #F8F5EE;
-  --ui-scene-blob-1: rgba(124, 156, 196, 0.2);
-  --ui-scene-blob-2: rgba(228, 184, 99, 0.1);
-  --ui-scene-blob-3: rgba(124, 156, 196, 0.08);
+  // 2026-10-23（变更-169）使用方改口径：浅色也做**弥散渐变**，配色三色：
+  //   #BBADE6 淡紫 / #FEC96D 暖琥珀 / #E2ADB4 灰粉
+  // 底色从"浅灰"换成暖白（#FFFAF6）：三团粉橙压上去要有个暖底托着，
+  // 否则紫+灰粉落在冷灰上会发脏。卡片仍是半透明白（使用方选"保持半透"），
+  // 于是弥散会从卡片边缘透出来 —— 这正是手机上"弥散"最容易被感知的位置。
+  --ui-scene-bg: #FFFAF6;
+  --ui-scene-blob-1: rgba(187, 173, 230, 0.34); // 淡紫（左上）
+  --ui-scene-blob-2: rgba(254, 201, 109, 0.26); // 暖琥珀（右上）
+  --ui-scene-blob-3: rgba(226, 173, 180, 0.3); // 灰粉（下方）
   // ---- 表面：浅灰底 + 磨砂白卡片 ----
   --ui-bg: var(--ui-scene-bg);
   --ui-surface: #ffffff;
