@@ -41,6 +41,8 @@ async function onClick() {
       instance,
       switchNow: toggleTheme,
       targetColor: isLight.value ? '#191320' : '#FFFAF6',
+      // 当前是浅色 ⇒ 目标是深色 ⇒ 走"圆收起"（element-plus 的方向不对称）
+      goDark: isLight.value,
     })
   } catch {
     toggleTheme()

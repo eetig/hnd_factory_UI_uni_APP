@@ -26,6 +26,34 @@ import {
  *
  * 几何仍是使用方口径：圆心 = 按钮中心；半径 = 到最远角。
  */
+
+/*
+ * View Transitions 的伪元素规则必须**运行时注入**。
+ *
+ * 原因：`::view-transition-old/new(root)` 在构建期被当成未知选择器剥掉了
+ * （写进 App.vue 或组件的 style 里，产物 CSS 里都查不到 —— 实测两次）。
+ * 这两条规则又缺一不可：
+ *   · animation: none —— 关掉默认交叉淡入淡出，否则盖住我们的圆形裁切
+ *   · .theme-dark::view-transition-old(root) { z-index: 100 } ——
+ *     切深色时裁的是 old(root)，它必须压在新快照上面（element-plus 同款细节）
+ */
+function ensureViewTransitionCss() {
+  // #ifdef H5
+  try {
+    if (typeof document === 'undefined' || document.getElementById('hnd-vt-css')) return
+    const style = document.createElement('style')
+    style.id = 'hnd-vt-css'
+    style.textContent = [
+      '::view-transition-new(root),::view-transition-old(root){animation:none;mix-blend-mode:normal;}',
+      '.theme-dark::view-transition-old(root){z-index:100;}',
+    ].join('')
+    document.head.appendChild(style)
+  } catch {
+    // 注不进去就退化成"有 VT 但没有自定义裁切"（至少主题会切）
+  }
+  // #endif
+}
+
 const revealing = ref(false)
 const circleStyle = ref('')
 
@@ -43,10 +71,12 @@ async function playCircle(geo, targetColor) {
  * @param {object} [opts.instance] 组件实例
  * @param {() => void} opts.switchNow 真正切主题/配色的动作（同步）
  * @param {string} [opts.targetColor] 没有 VT 时圆用什么颜色（目标主题的纸色）
+ * @param {boolean} [opts.goDark] 目标是深色 ⇒ 用"圆收起"（element-plus 的做法）
  * @param {number} [opts.duration]
  * @returns {Promise<'view-transition' | 'overlay' | 'no-anim'>}
  */
-async function revealFrom({ selector, instance, switchNow, targetColor, duration = REVEAL_MS }) {
+async function revealFrom({ selector, instance, switchNow, targetColor, goDark = false, duration = REVEAL_MS }) {
+  ensureViewTransitionCss()
   let applied = false
   const applyOnce = () => {
     if (applied) return
@@ -83,11 +113,25 @@ async function revealFrom({ selector, instance, switchNow, targetColor, duration
         // ★ switchNow 放在回调里：新快照 = 新主题
         const transition = document.startViewTransition(() => applyOnce())
         await transition.ready
-        const from = `circle(0px at ${geo.cx}px ${geo.cy}px)`
-        const to = `circle(${geo.radius}px at ${geo.cx}px ${geo.cy}px)`
+        const grow = [
+          `circle(0px at ${geo.cx}px ${geo.cy}px)`,
+          `circle(${geo.radius}px at ${geo.cx}px ${geo.cy}px)`,
+        ]
+        /*
+         * element-plus 的细节（掘金 7361721559239524390）：**方向不对称**
+         *   · 切到浅色 → 裁 new(root)，圆从 0 长大（新界面从按钮里长出来）
+         *   · 切到深色 → 裁 old(root)、clipPath **反过来**（半径→0），
+         *     即旧界面收成一个圆消失，露出底下已经变暗的新界面
+         * 少了这条，切暗色时整屏会"一下子变暗"，观感就是使用方说的"卡"。
+         * 配套 CSS：`.theme-dark::view-transition-old(root) { z-index: 100 }`
+         */
         const anim = document.documentElement.animate(
-          { clipPath: [from, to] },
-          { duration, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
+          { clipPath: goDark ? grow.slice().reverse() : grow },
+          {
+            duration,
+            easing: 'ease-out',
+            pseudoElement: goDark ? '::view-transition-old(root)' : '::view-transition-new(root)',
+          },
         )
         try {
           await anim?.finished
