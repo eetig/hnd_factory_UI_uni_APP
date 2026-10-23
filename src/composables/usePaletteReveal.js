@@ -186,7 +186,8 @@ export async function startReveal({ selector, instance, onReveal }) {
     rect = null
   }
 
-  const geometry = revealGeometry(rect, viewportSize())
+  const viewport = viewportSize()
+  const geometry = revealGeometry(rect, viewport)
   if (!geometry) {
     // 无动画路径：调用方在 onReveal 之外自己切；这里直接告诉它"没几何"
     return 'no-anim'
