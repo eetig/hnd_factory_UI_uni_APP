@@ -19,8 +19,19 @@
  * ⚠️ **打正式包（APK / 小程序提审）前必须确认这里是 'remote'**，
  *    否则就是「装到手机上却连的是开发机」—— 正是这次要修的问题
  *    （产物里内联了开发机 IP，见 src/api/config.js 的 API_ORIGIN）。
+ *
+ * 2026-10-23（变更-165）把它切成 'remote'，因为使用方用 HBuilderX **真机运行**时报
+ * 「加载不出来数据」：那次是 'local' + LAN_HOST=172.26.20.69，而那台开发机上
+ * **并没有跑后端**（后端在 124.220.60.154 上），手机连着空气当然没数据。
+ *
+ * 结论（写在这里省得再试一次）：
+ *   · 真机 / 模拟器 / 小程序预览 —— 一律 'remote'。手机走 https://hbhnd.cloud，
+ *     同网段、跨网段、蜂窝网都能用，也不需要 `usesCleartextTraffic`。
+ *   · 'local' 只适用于「**这台电脑上确实起了 hnd_factory + img-service + myocr**」的联调，
+ *     而且手机与电脑要同网段、Android 还要允许明文 HTTP（http:// 在 9+ 默认被拦）。
+ *   · 切完必须**重新运行/重新打包**：origin 是编译期内联的，刷新页面没用。
  */
-export const APP_ENV = 'local'
+export const APP_ENV = 'remote'
 
 /**
  * 开发机（跑 hnd_factory / img-service / myocr 的那台）的局域网 IP。

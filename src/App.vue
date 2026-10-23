@@ -3,6 +3,7 @@ import { onLaunch } from '@dcloudio/uni-app'
 import request from './api/request'
 import { getToken, saveAuth } from './api/auth'
 import { hasStoredRole } from './api/storage'
+import { ACTIVE_ENV, APP_ENV } from './api/env'
 
 // 启动后恢复角色与权限：token 在本地存储里，角色信息需重新拉取。
 // 沿用改造前的策略 —— 最多等 3 秒，避免后端不可用时阻塞启动。
@@ -19,7 +20,28 @@ function restoreAuth() {
 
 onLaunch(() => {
   restoreAuth()
+  warnLocalEnv()
 })
+
+/*
+ * 联调包提示（2026-10-23，变更-165）。
+ *
+ * 背景：使用方用 HBuilderX 真机运行时遇到「加载不出来数据」，现场无从判断是网络、
+ * 权限还是地址。根因是包内联了开发机 IP，而那台机器上没有后端 —— 这类问题**只能靠
+ * 包自己说出来**：把"这是联调包、连的是哪个地址"在启动时明明白白提示一次。
+ *
+ * 只在 'local' 出现（正式包不打扰）；用 toast 不用 modal，别挡住首屏。
+ */
+function warnLocalEnv() {
+  // #ifndef H5
+  if (APP_ENV !== 'local') return
+  uni.showToast({
+    title: `联调包：连的是 ${ACTIVE_ENV.apiOrigin}`,
+    icon: 'none',
+    duration: 4000,
+  })
+  // #endif
+}
 </script>
 
 <style lang="scss">
