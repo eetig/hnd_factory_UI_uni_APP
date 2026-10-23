@@ -20,6 +20,9 @@ import ImageViewer from '../../components/ImageViewer.vue'
 import TankLevelFormDialog from '../../components/TankLevelFormDialog.vue'
 import TankLevelImageDialog from '../../components/TankLevelImageDialog.vue'
 import EquipmentMaintenancePanel from '../../components/EquipmentMaintenancePanel.vue'
+import PurchaseDemandPanel from '../../components/PurchaseDemandPanel.vue'
+import MaterialMasterPanel from '../../components/MaterialMasterPanel.vue'
+import MaterialImportPanel from '../../components/MaterialImportPanel.vue'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkOrderData } from '../../composables/useWorkOrderData'
 import { usePickData } from '../../composables/usePickData'
@@ -125,6 +128,10 @@ const pageVars = computed(() => `--ui-safe-bottom: ${safeBottom.value}px;`)
 // 分组只是「怎么看这些页」，不新增状态：当前组由 activeTab 推导（见 currentGroup）。
 const TAB_GROUPS = [
   { key: 'order', label: '工单报工' },
+  // 物料 / 采购两组是 2026-10-23（变更-164）照 PC 端的分类加的：
+  // PC 是"工单 / 物料 / 采购 / 设备 / 报表 / 维护"，手机端只加了这两组，其余沿用原来的分组名。
+  { key: 'materials', label: '物料' },
+  { key: 'purchase', label: '采购' },
   { key: 'stats', label: '数据统计' },
   { key: 'tools', label: '工具' },
   { key: 'maintain', label: '数据维护' },
@@ -149,6 +156,13 @@ const tabs = [
   // 写接口本来就是「仅 admin + 该权限位」两道，将来放开给非 admin 的维护员时不必动这里。
   { key: 'equipment', label: '设备数据维护', icon: 'edit', hint: '逐个设备核对台账 / 几何 / 底图', perm: 'equipment:edit', group: 'maintain' },
   { key: 'electricity', label: '电费预提', icon: 'money-circle', hint: '电价档位与电费预提测算', group: 'tools' },
+  // 物料主数据 / 物料导入（2026-10-23，变更-164：与 PC 端 变更-159/160 对齐）
+  // 主数据 3 万行，手机上是"搜 + 分页 + 详情"，不是 PC 那种三段式表格
+  { key: 'materialMaster', label: '物料主数据', icon: 'goods', hint: '按名称 / 编码检索 3 万条物料主数据', group: 'materials' },
+  { key: 'materialImport', label: '物料导入', icon: 'file-excel', hint: '上传 SAP 物料清单：先看差异，确认后才写库', adminOnly: true, group: 'materials' },
+  // 采购需求（2026-10-23，变更-164）：与 PC 的 变更-142/144 同一套行为 ——
+  // 新增保存后不关表单、只清物料三样；长按行号复制三样、长按名称/编码/规格复制单项
+  { key: 'purchaseDemand', label: '采购需求', icon: 'cart', hint: '登记采购需求与到货进度', adminOnly: true, group: 'purchase' },
   // #ifdef H5 || APP-PLUS
   { key: 'import', label: '文件导入', icon: 'file-excel', hint: '上传 Excel 批量导入工单', perm: 'work_order:import', group: 'maintain' },
   // #endif
@@ -167,7 +181,7 @@ const tabs = [
  *   locked：可见、灰化、点一下弹提示（未登录说"需要注册"，已登录非管理员说"需要管理员"）
  */
 const PUBLIC_TAB_KEYS = new Set(['stock', 'vessel'])
-const ADMIN_TAB_KEYS = new Set(['equipment'])
+const ADMIN_TAB_KEYS = new Set(['equipment', 'materialImport', 'purchaseDemand'])
 
 function tabState(tab) {
   if (!tab) return 'locked'
@@ -3787,6 +3801,19 @@ onPullDownRefresh(async () => {
       <!-- 设备数据维护（2026-10-06）：页签按 equipment:edit 权限显隐，写接口另有 admin 闸门 -->
       <div v-show="activeTab === 'equipment'">
         <EquipmentMaintenancePanel />
+      </div>
+
+      <!-- 物料主数据 / 物料导入（2026-10-23，变更-164） -->
+      <div v-show="activeTab === 'materialMaster'">
+        <MaterialMasterPanel />
+      </div>
+      <div v-show="activeTab === 'materialImport'">
+        <MaterialImportPanel />
+      </div>
+
+      <!-- 采购需求（2026-10-23，变更-164） -->
+      <div v-show="activeTab === 'purchaseDemand'">
+        <PurchaseDemandPanel />
       </div>
 
       <div v-show="activeTab === 'tankLevel'">
