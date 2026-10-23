@@ -108,11 +108,31 @@ function applyH5BodyClass(value) {
 // #endif
 
 /**
+ * 全局唯一的那一份主题状态（模块级）。
+ *
+ * 放在模块级而不是 useTheme 内部：本仓 H5 构建里 `uni.$emit` 不存在，
+ * 靠事件总线同步会失效 —— 共享同一个 ref 就不需要事件总线了。
+ */
+let sharedTheme = null
+function sharedThemeRef() {
+  if (!sharedTheme) sharedTheme = ref(readTheme())
+  return sharedTheme
+}
+
+/**
  * 主题读写。
  * ⚠️ 必须在组件 setup 里调用（内部会注册 onUnmounted 解绑事件监听）。
  */
 export function useTheme() {
-  const theme = ref(readTheme())
+  /*
+   * ⚠️ 2026-10-23（变更-170 续）：主题状态是**模块级共享**的，不再每次 useTheme() 各建一份。
+   *
+   * 原来每个组件各持一份 ref、靠 `uni.$emit('hnd-theme-change')` 让其它组件跟上；
+   * 但本仓的 H5 构建里 `uni.$emit` 与 createSelectorQuery / getSystemInfoSync 一样**不存在**
+   * （调用进 catch 被吞掉），于是"点按钮 → 只有按钮自己知道"，页面根节点的
+   * :class 永远不变 —— 表现就是"点了没反应"。换成共享 ref 后不依赖事件总线。
+   */
+  const theme = sharedThemeRef()
 
   // 派生值都在这里现算，不要提到模块级 —— 原因见文件头
   const isLight = computed(() => theme.value === LIGHT)

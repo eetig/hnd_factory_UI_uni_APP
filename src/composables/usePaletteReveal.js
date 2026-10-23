@@ -47,6 +47,35 @@ export function paletteClassOf(key) {
   return key === 'violet' ? 'palette-violet' : ''
 }
 
+/**
+ * 等一帧（定时器，不用 rAF —— 后台标签页/未激活 WebView 里 rAF 会被暂停，
+ * 回调永远不来，表现是圆停在 scale(0)、主题也不切）。
+ */
+export function nextFrame() {
+  return new Promise((resolve) => setTimeout(resolve, 40))
+}
+
+/**
+ * 圆的几何（位置、直径、圆角、底色）→ 内联样式。
+ * 放大交给非 scoped 的 keyframes（见 components/CircularRevealLayer.vue）。
+ */
+export function circleStyleOf(geo) {
+  const { cx, cy, radius } = geo
+  const size = radius * 2
+  return [
+    'position:fixed',
+    'z-index:9999',
+    `left:${cx - radius}px`,
+    `top:${cy - radius}px`,
+    `width:${size}px`,
+    `height:${size}px`,
+    'border-radius:50%',
+    'background-color:var(--ui-scene-bg)',
+    'pointer-events:none',
+    'transform-origin:center center',
+  ].join(';')
+}
+
 /** 圆心与半径：到四个角的最远距离（纯函数，单测钉住） */
 export function revealGeometry(rect, viewport) {
   if (!rect) return null

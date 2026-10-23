@@ -1,4 +1,6 @@
 <script setup>
+import { getCurrentInstance, ref } from 'vue'
+import CircularRevealLayer from './CircularRevealLayer.vue'
 import { useTheme } from '../composables/useTheme'
 
 // 主题切换：触发器是「半明半暗」的圆点按钮，**点一下直接翻面**（不弹菜单）。
@@ -17,16 +19,52 @@ import { useTheme } from '../composables/useTheme'
 
 // 顶栏与登录页共用本组件，所以两处入口一起改：调用方模板一个字都不用动。
 const { isLight, toggleTheme } = useTheme()
+
+/*
+ * 圆形揭露（2026-10-23，变更-170 续）。
+ * 使用方：「把红色框选出的按钮（深浅色切换）也做成扩散的效果，微信小程序也是」。
+ * 与配色按钮共用同一个揭露层组件，所以两处的圆心、半径、缓动完全一致。
+ *
+ * 拿不到节点几何时立即切换（无动画），绝不出现"点了没反应"。
+ */
+const instance = getCurrentInstance()?.proxy
+const layerRef = ref(null)
+const busy = ref(false)
+
+async function onClick() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    /*
+     * **先翻面、再播圆**（2026-10-23，变更-170 续）。
+     *
+     * 顺序特意这么定：
+     *   ① 切换是"真相"，不能依赖动画链路是否跑通 —— 先切，点了就一定有反应；
+     *   ② 圆盖住的是**新**皮肤（coverAction 那套"盖完再切"会让圆是旧底色，
+     *      铺满瞬间整屏跳一下）；
+     *   ③ revealFrom 只是"锦上添花"，它内部任何失败都被吞掉，不影响已完成的切换。
+     */
+    toggleTheme()
+    await layerRef.value?.revealFrom('.theme-toggle', instance)
+  } catch {
+    // 动画层出问题也不回滚主题：配色/深浅是用户的明确意图
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
   <button
     class="theme-toggle"
     :aria-label="isLight ? '切换到深色主题' : '切换到浅色主题'"
-    @click="toggleTheme"
+    @click="onClick"
   >
     <view class="theme-dot" :class="{ 'is-light': isLight }"></view>
   </button>
+
+  <!-- 圆形揭露层（公用件）：从按钮中心扩散铺满，铺满后翻深浅 -->
+  <CircularRevealLayer ref="layerRef" />
 </template>
 
 <style lang="scss" scoped>
