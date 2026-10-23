@@ -27,7 +27,12 @@ import { ref } from 'vue'
 import { getItem, setItem } from '../api/storage'
 
 export const PALETTE_KEY = 'hnd-palette'
-export const REVEAL_MS = 520
+/*
+ * 520 → 420（2026-10-23，变更-170 续）。
+ * 使用方反馈「特别卡」：全屏遮罩每多 100ms，掉帧就多几帧。
+ * 420ms 仍然看得出"从按钮长出来"，但更利落。
+ */
+export const REVEAL_MS = 420
 
 export const APP_PALETTES = [
   { key: 'warm', label: '粉橙暖调', dots: ['#BBADE6', '#FEC96D', '#E2ADB4'] },
@@ -73,6 +78,9 @@ export function circleStyleOf(geo) {
     'background-color:var(--ui-scene-bg)',
     'pointer-events:none',
     'transform-origin:center center',
+    // 合成层：不写这两条，全屏实色圆每帧重绘整屏 —— 使用方说的"特别卡"就是这个
+    'will-change:transform',
+    'backface-visibility:hidden',
   ].join(';')
 }
 

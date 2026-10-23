@@ -36,18 +36,25 @@ async function onClick() {
   busy.value = true
   try {
     /*
-     * **先翻面、再播圆**（2026-10-23，变更-170 续）。
+     * **先播圆、再翻面**（2026-10-23，变更-170 续）。
      *
-     * 顺序特意这么定：
-     *   ① 切换是"真相"，不能依赖动画链路是否跑通 —— 先切，点了就一定有反应；
-     *   ② 圆盖住的是**新**皮肤（coverAction 那套"盖完再切"会让圆是旧底色，
-     *      铺满瞬间整屏跳一下）；
-     *   ③ revealFrom 只是"锦上添花"，它内部任何失败都被吞掉，不影响已完成的切换。
+     * 使用方反馈「特别卡」：一边播全屏动画、一边整页重排，是最费的一档。
+     * 现在把重排挪到圆盖住之后（用户看不见），动画期间只有一层合成层在动。
+     *
+     * 看门狗：万一 revealFrom 因为内核问题永远不 resolve，1.2s 后强制翻面 ——
+     * 宁可没有动画，也不能像上次那样"点了没反应"。
      */
+    const watchdog = setTimeout(() => {
+      if (busy.value) toggleTheme()
+    }, 1200)
+    try {
+      await layerRef.value?.revealFrom('.theme-toggle', instance)
+    } catch {
+      /* 动画失败照切 */
+    } finally {
+      clearTimeout(watchdog)
+    }
     toggleTheme()
-    await layerRef.value?.revealFrom('.theme-toggle', instance)
-  } catch {
-    // 动画层出问题也不回滚主题：配色/深浅是用户的明确意图
   } finally {
     busy.value = false
   }

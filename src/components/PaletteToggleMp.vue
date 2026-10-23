@@ -33,12 +33,19 @@ async function onClick() {
   if (busy.value) return
   busy.value = true
   try {
-    // 同样"先切、再播圆"：切换必须无条件下发生，圆只是装饰
+    // 与 ThemeToggle 同一套：先播圆、再切，看门狗 1.2s
+    const watchdog = setTimeout(() => {
+      if (busy.value) togglePalette()
+    }, 1200)
+    try {
+      await layerRef.value?.revealFrom('.palette-toggle', instance)
+    } catch {
+      /* 动画失败照切 */
+    } finally {
+      clearTimeout(watchdog)
+    }
     togglePalette()
     toast.show(`已切到${next.value.label}`)
-    await layerRef.value?.revealFrom('.palette-toggle', instance)
-  } catch {
-    // 动画失败不回滚：用户点的是"换配色"，这件事已经做了
   } finally {
     busy.value = false
   }
