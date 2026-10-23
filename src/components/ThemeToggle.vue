@@ -35,25 +35,14 @@ async function onClick() {
   if (busy.value) return
   busy.value = true
   try {
-    /*
-     * **先播圆、再翻面**（2026-10-23，变更-170 续）。
-     *
-     * 使用方反馈「特别卡」：一边播全屏动画、一边整页重排，是最费的一档。
-     * 现在把重排挪到圆盖住之后（用户看不见），动画期间只有一层合成层在动。
-     *
-     * 看门狗：万一 revealFrom 因为内核问题永远不 resolve，1.2s 后强制翻面 ——
-     * 宁可没有动画，也不能像上次那样"点了没反应"。
-     */
-    const watchdog = setTimeout(() => {
-      if (busy.value) toggleTheme()
-    }, 1200)
-    try {
-      await layerRef.value?.revealFrom('.theme-toggle', instance)
-    } catch {
-      /* 动画失败照切 */
-    } finally {
-      clearTimeout(watchdog)
-    }
+    // 圆里滚的是**新主题**：切换由揭露层在合适的时机执行（有 VT 时在 VT 回调里）
+    await layerRef.value?.revealFrom({
+      selector: '.theme-toggle',
+      instance,
+      switchNow: toggleTheme,
+      targetColor: isLight.value ? '#191320' : '#FFFAF6',
+    })
+  } catch {
     toggleTheme()
   } finally {
     busy.value = false

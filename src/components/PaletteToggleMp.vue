@@ -33,19 +33,15 @@ async function onClick() {
   if (busy.value) return
   busy.value = true
   try {
-    // 与 ThemeToggle 同一套：先播圆、再切，看门狗 1.2s
-    const watchdog = setTimeout(() => {
-      if (busy.value) togglePalette()
-    }, 1200)
-    try {
-      await layerRef.value?.revealFrom('.palette-toggle', instance)
-    } catch {
-      /* 动画失败照切 */
-    } finally {
-      clearTimeout(watchdog)
-    }
-    togglePalette()
+    await layerRef.value?.revealFrom({
+      selector: '.palette-toggle',
+      instance,
+      switchNow: togglePalette,
+      targetColor: next.value.key === 'violet' ? '#FBFAFF' : '#FFFAF6',
+    })
     toast.show(`已切到${next.value.label}`)
+  } catch {
+    togglePalette()
   } finally {
     busy.value = false
   }

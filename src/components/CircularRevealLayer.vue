@@ -10,90 +10,104 @@ import {
 } from '../composables/usePaletteReveal'
 
 /*
- * 圆形揭露层（2026-10-23，变更-170 续）。
+ * 圆形揭露层（2026-10-23，变更-170 第三版）—— 顶栏两个按钮共用。
  *
- * 顶栏上有**两个**按钮都用这套转场：
- *   ① 配色（粉橙 ⇄ 粉紫）        ② 深浅色（浅 ⇄ 深）
- * 使用方 2026-10-23 要求 ② 也做成扩散（微信小程序同样），所以把动画抽成这个公用件。
+ * ## 口径（使用方 2026-10-23 亲口定的）
  *
- * ## 契约（刻意的选择，踩过两次坑才定下来）
+ *   「圆圈切换的时候，用**要切换的主题**去扩散」
  *
- *   `revealFrom()` **等到动画播完才 resolve**，返回值：
- *     'reveal'  动画已播完，屏幕已被圆盖住 —— 调用方此时切主题即可
- *     'no-anim' 拿不到几何 / 不支持 —— 调用方立即切
+ * 上一版是"先画旧底色的圆 → 铺满 → 才切主题"，看起来就是"圈慢慢扩开、然后整屏跳一下"，
+ * 感官上很卡。现在的两条路径都保证**圆里滚的是新主题**：
  *
- * 顺序上**先播完再切**：切换引起的整页重排发生在圆盖住之后，用户看不到掉帧；
- * 反过来（一边动画一边重排）正是"特别卡"的来源之一。
+ *   · 有 View Transitions（H5 / 新内核）：把 switchNow() 放进 VT 回调 ⇒ new 快照即新主题，
+ *     再用 clip-path: circle() 裁 ⇒ 圆扩到哪，新主题露到哪，中间没有硬切。
+ *   · 没有 VT（老 WebView / 小程序）：圆用**目标主题的底色**扩散，铺满后再 switchNow()
+ *     （此刻整屏已被圆盖住，切换看不出来）。
  *
- * 为什么不回调父组件：试过 `:on-covered`（Vue 把 on* 当事件监听器，prop 收不到）
- * 和自定义 emit（组件 ref 转发链路容易断）。"await 一个 Promise"没有歧义。
- *
- * 三端分工见 composables/usePaletteReveal.js 头注。
+ * 几何仍是使用方口径：圆心 = 按钮中心；半径 = 到最远角。
  */
 const revealing = ref(false)
 const circleStyle = ref('')
 
-async function playCircle(geo) {
-  circleStyle.value = circleStyleOf(geo)
+async function playCircle(geo, targetColor) {
+  circleStyle.value = circleStyleOf(geo, targetColor)
   revealing.value = true
   await nextFrame()
   await new Promise((r) => setTimeout(r, REVEAL_MS + 40))
   revealing.value = false
 }
 
-/** H5 有 View Transitions 时走原生；否则走放大的圆 */
-async function playViewTransition(geo) {
-  // #ifdef H5
-  const hasVT = typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
-  if (hasVT) {
+/**
+ * @param {object} opts
+ * @param {string} opts.selector 触发按钮选择器
+ * @param {object} [opts.instance] 组件实例
+ * @param {() => void} opts.switchNow 真正切主题/配色的动作（同步）
+ * @param {string} [opts.targetColor] 没有 VT 时圆用什么颜色（目标主题的纸色）
+ * @param {number} [opts.duration]
+ * @returns {Promise<'view-transition' | 'overlay' | 'no-anim'>}
+ */
+async function revealFrom({ selector, instance, switchNow, targetColor, duration = REVEAL_MS }) {
+  let applied = false
+  const applyOnce = () => {
+    if (applied) return
+    applied = true
     try {
-      // 用空回调开转场：等 ready 之后自己 animate clip-path，动画结束再让调用方切主题
-      const transition = document.startViewTransition(() => {})
-      await transition.ready
-      const from = `circle(0px at ${geo.cx}px ${geo.cy}px)`
-      const to = `circle(${geo.radius}px at ${geo.cx}px ${geo.cy}px)`
-      const anim = document.documentElement.animate(
-        { clipPath: [from, to] },
-        { duration: REVEAL_MS, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
-      )
-      try {
-        await anim?.finished
-      } catch {
-        /* 被打断也继续 */
-      }
-      return
+      switchNow?.()
     } catch {
-      // 落到放大的圆
+      /* 切主题失败不影响动画收尾 */
     }
   }
-  // #endif
-  await playCircle(geo)
-}
 
-/**
- * 从某个按钮开始做圆形揭露，**动画结束后** resolve。
- * @param {string} selector 触发按钮的选择器
- * @param {object} [instance] 组件实例（模板里传 getCurrentInstance().proxy）
- * @returns {Promise<'reveal' | 'no-anim'>}
- */
-async function revealFrom(selector, instance) {
   const mode = await startReveal({
     selector,
     instance,
     onReveal: (geo) => {
-      // 故意不 await：startReveal 只负责"有没有几何"，播动画是接下来这句
       revealGeometry(geo)
       void viewportSize()
-      playQueue = playViewTransition(geo)
+      pending = playWithGeo(geo)
     },
   })
-  if (mode === 'no-anim') return 'no-anim'
-  await playQueue
-  return 'reveal'
+  if (mode === 'no-anim') {
+    // 拿不到几何：无动画直接切（使用方要求：不能报错卡死）
+    applyOnce()
+    return 'no-anim'
+  }
+  return pending
+
+  // ---- 内部 ----
+  async function playWithGeo(geo) {
+    // #ifdef H5
+    const hasVT = typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
+    if (hasVT) {
+      try {
+        // ★ switchNow 放在回调里：新快照 = 新主题
+        const transition = document.startViewTransition(() => applyOnce())
+        await transition.ready
+        const from = `circle(0px at ${geo.cx}px ${geo.cy}px)`
+        const to = `circle(${geo.radius}px at ${geo.cx}px ${geo.cy}px)`
+        const anim = document.documentElement.animate(
+          { clipPath: [from, to] },
+          { duration, easing: 'ease-out', pseudoElement: '::view-transition-new(root)' },
+        )
+        try {
+          await anim?.finished
+        } catch {
+          /* 被打断也继续 */
+        }
+        return 'view-transition'
+      } catch {
+        // 掉到下面的放大圆（applyOnce 保证不会重复切）
+      }
+    }
+    // #endif
+
+    await playCircle(geo, targetColor)
+    applyOnce()
+    return 'overlay'
+  }
 }
 
-/** 当前在播的那段（revealFrom 里等它） */
-let playQueue = Promise.resolve()
+let pending = Promise.resolve()
 
 defineExpose({ revealFrom, revealing, REVEAL_MS })
 </script>
@@ -103,13 +117,12 @@ defineExpose({ revealFrom, revealing, REVEAL_MS })
 </template>
 
 <!--
-  这一块**故意不写 scoped**（2026-10-23，变更-170）：
-  揭露层是 v-if 动态插入的节点，uni 的 H5 渲染层不给它挂 data-v-*，
-  scoped 规则一条都匹配不上（实测：类名加上了、scale 永远是 0）。
+  这一块**故意不写 scoped**：揭露层是 v-if 动态插入的节点，uni 的 H5 渲染层
+  不给它挂 data-v-*，scoped 规则一条都匹配不上（实测：类名加上了、scale 永远是 0）。
 -->
 <style lang="scss">
 .palette-reveal {
-  animation: palette-reveal-grow 520ms ease-out both;
+  animation: palette-reveal-grow 480ms ease-out both;
 }
 
 @keyframes palette-reveal-grow {

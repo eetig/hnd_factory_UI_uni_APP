@@ -64,7 +64,7 @@ export function nextFrame() {
  * 圆的几何（位置、直径、圆角、底色）→ 内联样式。
  * 放大交给非 scoped 的 keyframes（见 components/CircularRevealLayer.vue）。
  */
-export function circleStyleOf(geo) {
+export function circleStyleOf(geo, targetColor) {
   const { cx, cy, radius } = geo
   const size = radius * 2
   return [
@@ -75,7 +75,8 @@ export function circleStyleOf(geo) {
     `width:${size}px`,
     `height:${size}px`,
     'border-radius:50%',
-    'background-color:var(--ui-scene-bg)',
+    // ★ 用**目标主题**的底色：圆里滚进来的就是新主题，而不是旧底色铺满后再硬切
+    `background-color:${targetColor || 'var(--ui-scene-bg)'}`,
     'pointer-events:none',
     'transform-origin:center center',
     // 合成层：不写这两条，全屏实色圆每帧重绘整屏 —— 使用方说的"特别卡"就是这个
