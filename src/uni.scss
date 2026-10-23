@@ -402,18 +402,17 @@ $radius-xl: 24rpx;
   --ui-text: #f4f7fc;
   --ui-text-2: #b4bccd;
   --ui-text-3: #98a2b5;
-  // ---- 强调色：香槟金（规范里唯一允许的强调色）----
-  // ⚠️ --ui-on-accent 必须改成深色：白字压 #E4B863 只有 1.78:1。
-  --ui-accent: #e4b863;
-  --ui-accent-2: #f3dca8;
-  --ui-accent-text: #f3dca8;
-  --ui-accent-soft: rgba(228, 184, 99, 0.15);
-  --ui-accent-strong: rgba(228, 184, 99, 0.4);
-  --ui-accent-glow: rgba(228, 184, 99, 0.35);
-  --ui-on-accent: #1a1408;
+  // ---- 强调色：矢车菊蓝（夜里用亮一档，白字压不住，所以字用近黑）----
+  // ⚠️ --ui-on-accent 是**压在实心强调块上的字**：深色下底是亮的 #5A92E5，
+  //    白字只有 2.9:1，必须用近黑 #0B1626（压蓝 6.3:1）。两套主题各自翻转。
+  --ui-accent: #5A92E5;
+  --ui-accent-2: #8FB6F0;
+  --ui-accent-text: #9CC0F3;
+  --ui-accent-soft: rgba(90, 146, 229, 0.20);
+  --ui-accent-strong: rgba(90, 146, 229, 0.45);
+  --ui-accent-glow: rgba(90, 146, 229, 0.32);
+  --ui-on-accent: #0B1626;
   --ui-on-light: #0b1322;
-  // ---- 语义色：规范只允许一种强调色，但状态色**承载语义**，全改金色会让"停用/告警/成功"
-  //      不可辨。所以保留，只降饱和、压暗，让它融进夜景而不是跳出来。----
   --ui-danger: #e88a94;
   --ui-success: #6fc79a;
   --ui-warning: #d9b268;
@@ -517,14 +516,14 @@ $radius-xl: 24rpx;
   // 玻璃在 #f2f3f7 白底上做不出深色那样的透光效果（规范自己也禁止纯色平面背景，
   // 但它的整套配方都是为夜景写的）。所以浅色不照搬，只保留最低限度的"场景起伏"：
   // 底仍是使用方认可的浅灰，光斑压到很淡 —— 给玻璃一点可折射的东西就够了。
-  --ui-scene-bg: #f2f3f7;
+  --ui-scene-bg: #F8F5EE;
   --ui-scene-blob-1: rgba(124, 156, 196, 0.2);
   --ui-scene-blob-2: rgba(228, 184, 99, 0.1);
   --ui-scene-blob-3: rgba(124, 156, 196, 0.08);
   // ---- 表面：浅灰底 + 磨砂白卡片 ----
   --ui-bg: var(--ui-scene-bg);
   --ui-surface: #ffffff;
-  --ui-surface-2: #f5f6f9;
+  --ui-surface-2: #F6F3EC;
   --ui-surface-3: #eaeef5;
   --ui-border: #e3e6ee;
   --ui-border-strong: #cfd5e0;
@@ -542,14 +541,14 @@ $radius-xl: 24rpx;
   // #E4B863 压白底只有 1.78:1，当文字色完全不达标；--ui-accent-text 用 #7a5c14（白底 6.3:1）。
   // --ui-on-accent 是**压在实心强调块上的字**（日期选中日、未报角标、HND 徽标、wot 主按钮）。
   // ⚠️ 浅色主题下它必须是**白**：底已经被压暗到 #8a6a1f，白字上去 5.04:1；
-  //    深色主题正好反过来（底是亮的 #E4B863，字用近黑 9.0:1）。两套主题各自翻转，别抄错方向。
-  //    （曾设成 #2a2008，在 #8a6a1f 上只有 3.18:1 —— 日期选中日那种小字会勉强。）
-  --ui-accent: #8a6a1f;
-  --ui-accent-2: #a9862c;
-  --ui-accent-text: #7a5c14;
-  --ui-accent-soft: rgba(228, 184, 99, 0.22);
-  --ui-accent-strong: rgba(138, 106, 31, 0.45);
-  --ui-accent-glow: rgba(176, 138, 46, 0.3);
+  // ---- 强调色：矢车菊蓝 #5A92E5 是"签条色"，实心块压深一档到 #3F73C4 才吃得下白字
+  //    （白字压 #3F73C4 = 4.9:1；直接压 #5A92E5 只有 2.9:1）。文字色走 #2C5FA8（白底 6.4:1）。
+  --ui-accent: #3F73C4;
+  --ui-accent-2: #5A92E5;
+  --ui-accent-text: #2C5FA8;
+  --ui-accent-soft: rgba(90, 146, 229, 0.16);
+  --ui-accent-strong: rgba(90, 146, 229, 0.42);
+  --ui-accent-glow: rgba(90, 146, 229, 0.28);
   --ui-on-accent: #ffffff;
   --ui-on-light: #ffffff;
   // ---- 语义色 ----
@@ -566,7 +565,7 @@ $radius-xl: 24rpx;
   --ui-soft-shadow: rgba(20, 22, 28, 0.16);
   --ui-soft-light: rgba(255, 255, 255, 0.9);
   // ---- 遮罩与浮层 ----
-  --ui-scrim: rgba(242, 243, 247, 0.72);
+  --ui-scrim: rgba(248, 245, 238, 0.72);
   --ui-surface-trans: rgba(255, 255, 255, 0.94);
   // ---- 玻璃材质：轻量版 ----
   // 膜更实（66% 白）、模糊更小、饱和增强更弱。浅色下玻璃**不追求透光**，
