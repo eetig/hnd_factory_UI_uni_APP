@@ -28,11 +28,31 @@ import { getItem, setItem } from '../api/storage'
 
 export const PALETTE_KEY = 'hnd-palette'
 /*
- * 520 → 420（2026-10-23，变更-170 续）。
- * 使用方反馈「特别卡」：全屏遮罩每多 100ms，掉帧就多几帧。
- * 420ms 仍然看得出"从按钮长出来"，但更利落。
+ * 时长 320ms —— 按 `ui-taste` §4 的区间定的：
+ *   状态切换 200–300ms / 页面级 300–500ms；主题切换是**状态切换**，取交界 320ms。
+ * 历史：520 → 420 → 320（使用方连续反馈"卡"；全屏裁切每多 100ms 就是几帧掉帧）。
  */
-export const REVEAL_MS = 420
+export const REVEAL_MS = 320
+
+/**
+ * 是否尊重"减弱动效"。
+ * `ui-taste` §2 把这条列为**硬性**：超出 hover/press 的动效必须可退化为静止。
+ * 这里动的是全屏裁切，量级远超 hover ⇒ 必须遵守。三端都用 uni 的 API 判断。
+ */
+export function prefersReducedMotion() {
+  try {
+    const info = uni.getSystemInfoSync?.()
+    // uni 的 getSystemInfoSync 在部分端不返回这个字段，返回 undefined 就当 false
+    if (info && typeof info.reduceMotion === 'boolean') return info.reduceMotion
+  } catch {
+    /* 走下面的媒体查询 */
+  }
+  try {
+    return Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches)
+  } catch {
+    return false
+  }
+}
 
 export const APP_PALETTES = [
   { key: 'warm', label: '粉橙暖调', dots: ['#BBADE6', '#FEC96D', '#E2ADB4'] },

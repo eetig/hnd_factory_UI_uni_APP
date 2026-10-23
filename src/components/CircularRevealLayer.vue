@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import {
   circleStyleOf,
   nextFrame,
+  prefersReducedMotion,
   REVEAL_MS,
   revealGeometry,
   startReveal,
@@ -88,6 +89,12 @@ async function revealFrom({ selector, instance, switchNow, targetColor, goDark =
     }
   }
 
+  // 减弱动效：不播，直接切（无障碍硬性要求）
+  if (prefersReducedMotion()) {
+    applyOnce()
+    return 'no-anim'
+  }
+
   const mode = await startReveal({
     selector,
     instance,
@@ -166,7 +173,7 @@ defineExpose({ revealFrom, revealing, REVEAL_MS })
 -->
 <style lang="scss">
 .palette-reveal {
-  animation: palette-reveal-grow 480ms ease-out both;
+  animation: palette-reveal-grow 320ms ease-out both;
 }
 
 @keyframes palette-reveal-grow {
