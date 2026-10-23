@@ -14,6 +14,8 @@ import LoadingMask from '../../components/LoadingMask.vue'
 import PanelState from '../../components/PanelState.vue'
 import FilterHeaderCell from '../../components/FilterHeaderCell.vue'
 import ThemeToggle from '../../components/ThemeToggle.vue'
+import PaletteToggleMp from '../../components/PaletteToggleMp.vue'
+import { paletteClassOf, usePalette } from '../../composables/usePaletteReveal'
 import NavDrawer from '../../components/NavDrawer.vue'
 import DropdownMenu from '../../components/DropdownMenu.vue'
 import ImageViewer from '../../components/ImageViewer.vue'
@@ -80,6 +82,12 @@ const message = useMessage()
 // 深色是默认值（写在 page 上），浅色靠给页面根 view 加 .theme-light。
 // isLight 在这里多担一件事：储罐底图深浅两版是两个资源，按主题挑 src（见 VESSELS.imageDark）。
 const { isLight, themeClass, wotTheme, themeVars } = useTheme()
+/*
+ * 配色（2026-10-23，变更-170）：与深浅色正交的第二维。
+ * paletteClass 为空 = 粉橙（uni.scss 的默认套）；'palette-violet' = 粉紫。
+ */
+const { palette, togglePalette: togglePaletteColor } = usePalette()
+const paletteClass = computed(() => paletteClassOf(palette.value))
 
 /* 底部安全区（Home Indicator），喂给 App.vue 的 .pager-dock 与 .page 底部补白。
    为什么走 JS 而不是 CSS 的 env(safe-area-inset-bottom)：
@@ -2861,7 +2869,7 @@ onPullDownRefresh(async () => {
        2026-10-10 全部去掉：那段屏幕边缘要留给系统的内滑返回手势（见上面 onBackPress 那段）。 -->
   <view
     class="page"
-    :class="themeClass"
+    :class="[themeClass, paletteClass]"
     :style="pageVars"
   >
     <!-- 主题统一交给 wot-design-uni 的 config-provider：
@@ -2894,6 +2902,10 @@ onPullDownRefresh(async () => {
 
         <!-- 深色 / 浅色切换：按钮与图标见 components/ThemeToggle.vue -->
         <ThemeToggle />
+
+        <!-- 配色切换（2026-10-23，变更-170）：点它做圆形揭露换弥散三色。
+             与深浅色正交 —— 浅粉橙 / 浅粉紫 / 深粉橙 / 深粉紫 四种组合都成立。 -->
+        <PaletteToggleMp />
 
         <button class="topbar__btn" aria-label="账户与功能菜单" @click="openMenu">
           <wd-icon name="user" size="20px" />
