@@ -114,9 +114,25 @@ function applyH5BodyClass(value) {
  * 靠事件总线同步会失效 —— 共享同一个 ref 就不需要事件总线了。
  */
 let sharedTheme = null
+
+/**
+ * 主题状态的**真正单例**。
+ *
+ * 为什么不用普通的模块级变量：本仓 H5 构建会把同一个模块拆进不同 chunk
+ * （页面一个、组件一个），模块级变量于是**各有一份** —— 表现就是
+ * "点了深浅色，存储变了、body 类也变了，但页面根的 theme-dark 不跟"，
+ * 更糟的是再点一次配色，页面重算 themeClass 得到空串 ⇒ 暗色的样式整片掉，
+ * 顶栏底、背景色一起消失（2026-10-23 使用方截图报的就是这个）。
+ *
+ * 挂到 globalThis 上就跨 chunk 唯一了；三个端都有 globalThis。
+ */
 function sharedThemeRef() {
-  if (!sharedTheme) sharedTheme = ref(readTheme())
-  return sharedTheme
+  const g = globalThis
+  if (!g.__HND_THEME_REF__) {
+    g.__HND_THEME_REF__ = sharedTheme || ref(readTheme())
+    sharedTheme = g.__HND_THEME_REF__
+  }
+  return g.__HND_THEME_REF__
 }
 
 /**

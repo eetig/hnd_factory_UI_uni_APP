@@ -271,8 +271,17 @@ export async function startReveal({ selector, instance, onReveal }) {
   return 'reveal'
 }
 
-/** 模块级单例：按钮与页面根类名读同一份 */
-const palette = ref(readStored())
+/**
+ * 调色板单例。同样挂 globalThis：H5 构建会把模块拆进不同 chunk，
+ * 模块级变量不跨 chunk 共享（与 useTheme 同一个坑，2026-10-23 一并修）。
+ */
+function sharedPaletteRef() {
+  const g = globalThis
+  if (!g.__HND_PALETTE_REF__) g.__HND_PALETTE_REF__ = ref(readStored())
+  return g.__HND_PALETTE_REF__
+}
+
+const palette = sharedPaletteRef()
 
 export function usePalette() {
   function setPalette(key) {
