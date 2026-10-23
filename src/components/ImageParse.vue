@@ -2,11 +2,11 @@
 import { computed, onUnmounted, ref } from 'vue'
 import DateField from './DateField.vue'
 import PhotoGrid from './PhotoGrid.vue'
+import MaterialPickerSheet from './MaterialPickerSheet.vue'
 import request from '../api/request'
 import { uploadFile } from '../api/upload'
 import { resolveAssetUrl } from '../api/config'
-import { matchMaterial, materialLookupError, searchMaterials } from '../composables/useMaterialMaster'
-import { useKeyboardLift } from '../composables/useKeyboardLift'
+import { matchMaterial, materialLookupError } from '../composables/useMaterialMaster'
 import {
   BILL_TYPE_INBOUND,
   BILL_TYPE_PICK,
@@ -431,87 +431,17 @@ const pickerVisible = ref(false)
 const pickerRow = ref(null)
 /** 候选所属的卡片：选中后要清掉该卡上一次的入库结果 */
 const pickerImage = ref(null)
+/** 打开选择器时预填的关键词（识别出来的名称）；搜索与键盘处理都在 MaterialPickerSheet 里 */
 const pickerKeyword = ref('')
-const pickerResults = ref([])
-const pickerLoading = ref(false)
 
-// 弹层里的搜索框会被软键盘盖住（弹层是 fixed 的，uni 的 adjust-position 管不着），
-// 拿到键盘高度后垫成 padding-bottom，把内容顶到键盘上沿之上，见 useKeyboardLift
-const {
-  keyboardHeight: pickerKeyboardHeight,
-  start: startKeyboardLift,
-  stop: stopKeyboardLift,
-} = useKeyboardLift()
-
-const pickerCustomStyle = computed(() => {
-  const base =
-    'max-height: 80vh; display: flex; flex-direction: column; background-color: var(--ui-sheet-fill); overscroll-behavior: contain;'
-  const kb = pickerKeyboardHeight.value
-  if (!kb) return base
-
-  // ⚠️ 键盘弹起时**不能用 padding 把内容顶上去**：本项目没有全局 box-sizing 重置
-  //    （preflight 关着，uni.css 只给 uni-button / uni-page-* 少数几个元素设了 border-box），
-  //    .wd-popup 是 content-box —— padding 不占 max-height 的额度，弹层会被撑得比
-  //    max-height 还高，整个顶出屏幕上沿（真机实测：搜索框跑到状态栏里去了）。
-  //
-  // ⚠️ 高度要写成**确定值 height**，不能只给 max-height：键盘高度是系统报的，
-  //    实测不可靠（同一台机器上换个输入法就报得偏大）。只给 max-height 时，弹层高度
-  //    由内容决定 —— 内容比上限矮时它就按内容来，`bottom: 键盘高` 一偏大，整块就被顶到
-  //    屏幕外（真机现象：列表从一个被截断的行开始，输入框跑到屏幕上方）。
-  //    写成 height 后顶边恒等于下面这个 12px：height + bottom 是联动算出来的，
-  //    键盘报多少都只会让弹层变矮，不会溢出屏幕。
-  //    padding-bottom 显式清零，是因为 wd-popup 会自动追加一条安全区的 padding-bottom
-  //    （同样是 content-box，留着就白白多出 30 多像素）。
-  return `${base} bottom: ${kb}px; padding-bottom: 0; height: min(80vh, calc(100vh - ${kb}px - 12px));`
-})
-
-/** 列表空状态文案。三种情况轮着出现，但列表区高度始终是 56vh（见模板里的说明） */
-const pickerEmptyText = computed(() => {
-  if (pickerLoading.value && !pickerResults.value.length) return '检索中…'
-  if (!pickerKeyword.value.trim()) return '输入名称、编码或规格开始搜索'
-  return '没有匹配的物料，请换个关键词。'
-})
-
-/** 输入防抖：输入停下 300ms 才发请求，避免每敲一个字都打一次接口 */
-const PICKER_DEBOUNCE_MS = 300
-let pickerSearchTimer = null
-/** 请求序号：快速输入时先发的请求可能后返回，用它丢弃过期响应，否则旧结果会盖掉新结果 */
-let pickerSearchSeq = 0
-
-async function runPickerSearch() {
-  const seq = ++pickerSearchSeq
-  pickerLoading.value = true
-  try {
-    const results = await searchMaterials(pickerKeyword.value, 30)
-    if (seq !== pickerSearchSeq) {
-      return
-    }
-    pickerResults.value = results
-  } finally {
-    if (seq === pickerSearchSeq) {
-      pickerLoading.value = false
-    }
-  }
-}
-
-function handlePickerInput() {
-  clearTimeout(pickerSearchTimer)
-  pickerSearchTimer = setTimeout(runPickerSearch, PICKER_DEBOUNCE_MS)
-}
-
-async function openMaterialPicker(row, image) {
+function openMaterialPicker(row, image) {
   pickerRow.value = row
   pickerImage.value = image
+  // 选择器（MaterialPickerSheet）自己负责搜索、分页与键盘；这里只传预填关键词。
+  // 图片解析原有「先用自动匹配的候选垫一下」的逻辑随弹层一起搬进组件了 ——
+  // 组件打开时会用这个关键词直接查第一页，结果与候选来源一致（都走服务端）。
   pickerKeyword.value = row.materialName || ''
-  // 先用自动匹配时已取到的候选，打开即有内容；为空再立刻查一次（不必等防抖）
-  pickerResults.value = row.candidates?.length ? [...row.candidates] : []
   pickerVisible.value = true
-  // 只在这个弹层开着的时候听键盘高度（监听是全局的，挂久了会和别的弹层互相覆盖）
-  startKeyboardLift()
-
-  if (!pickerResults.value.length) {
-    await runPickerSearch()
-  }
 }
 
 function selectMaterial(material) {
@@ -529,9 +459,6 @@ function selectMaterial(material) {
 }
 
 function closeMaterialPicker() {
-  // 取消待发的防抖请求，避免弹窗已关还在打接口
-  clearTimeout(pickerSearchTimer)
-  stopKeyboardLift()
   pickerVisible.value = false
   pickerRow.value = null
   pickerImage.value = null
@@ -1541,62 +1468,13 @@ onUnmounted(() => {
 
     <!-- 物料候选：识别出的名称查不到唯一主数据时，给人一个挑选的入口。
          用对话框而不是下拉，是因为表格单元格里放弹层容易被裁切、也不好定位。 -->
-    <!-- 物料选择器。原为 el-dialog（width="640px" 居中弹窗）。
-         移动端改成底部弹层 + scroll-view —— 注意小程序的 <view> 上写
-         overflow-y: auto 是不会滚的，必须用 scroll-view 才滚得起来。 -->
-    <!-- ⚠️ custom-style 里的 background-color 不能省：wd-popup 给 .wd-popup 写死了
-         `background: #fff`，只有挂 .wot-theme-dark 时才变（本项目用的是自己那套
-         浅色默认 / .theme-dark 的 CSS 变量主题，没有这个类）——不覆盖的话，深色主题下
-         整个弹层是块白板，里面的文字反而是 $ui-text 的浅色，等于白底白字。 -->
-    <wd-popup
+    <!-- 物料选择器（2026-10-23，变更-159）：抽成独立组件，搜索 / 分页 / 类型胶囊 / 价格表都在里面。
+         原来这里只有「编码 + 名称」两行，30k 主数据下既搜不准、也看不出单位与价格。 -->
+    <MaterialPickerSheet
       v-model="pickerVisible"
-      position="bottom"
-      round
-      safe-area-inset-bottom
-      :custom-style="pickerCustomStyle"
-      @close="closeMaterialPicker"
-    >
-      <view class="picker-head">
-        <text class="picker-head__title">选择物料</text>
-      </view>
-
-      <view class="picker-search">
-        <wd-icon name="search" size="14px" />
-        <input
-          v-model="pickerKeyword"
-          class="picker-search__input"
-          type="text"
-          placeholder="输入名称、编码或规格，边打边查"
-          placeholder-class="picker-search__ph"
-          confirm-type="search"
-          @input="handlePickerInput"
-          @confirm="runPickerSearch"
-        />
-      </view>
-
-      <!-- ⚠️ 列表区**始终**占着固定高度（56vh），空状态放在它里面，不要用 v-if 把整个
-           scroll-view 换掉。换掉的话弹层高度会随结果条数变：2 条结果时弹层只有一百多像素，
-           搜索框贴着键盘；结果一多弹层长到 56vh，搜索框又跑到屏幕上半截 ——
-           人正在打字，位置一直在动。固定住高度，搜索框的位置就与结果条数无关了。
-           （ProductSelectDialog 本来就是这么写的，两边保持一致。） -->
-      <scroll-view class="picker-list" scroll-y>
-        <view v-if="!pickerResults.length" class="picker-state">
-          <text>{{ pickerEmptyText }}</text>
-        </view>
-
-        <template v-else>
-          <view
-            v-for="item in pickerResults"
-            :key="`${item.code}|${item.name}`"
-            class="picker-item"
-            @click="selectMaterial(item)"
-          >
-            <text class="picker-item__code">{{ item.code }}</text>
-            <text class="picker-item__name">{{ item.name }}</text>
-          </view>
-        </template>
-      </scroll-view>
-    </wd-popup>
+      :initial-keyword="pickerKeyword"
+      @select="selectMaterial"
+    />
   </div>
 </template>
 
@@ -1711,63 +1589,8 @@ onUnmounted(() => {
   background-color: $ui-raise-3;
 }
 
-/* ===== 物料选择器 =====
-   原来这里是 Element Plus 的 el-dialog，内部样式全靠 Tailwind 工具类撑着。
-   改成 wd-popup 之后，弹层结构变了，且滚动必须由 scroll-view 承担
-   （小程序的 <view> 上写 overflow-y: auto 不会滚），所以落成显式样式。 */
-.picker-head {
-  padding: 24px 20px 8px;
 
-  &__title {
-    color: $slate-900;
-    font-size: 16px;
-    font-weight: 600;
-  }
-}
 
-.picker-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 20px 12px;
-  padding: 0 18px;
-  border: 1px solid $ui-border;
-  border-radius: $ui-radius-pill;
-  background-color: $ui-surface-2;
-  color: $ui-text-3;
-
-  &__input {
-    flex: 1;
-    min-height: 44px;
-    color: $ui-text;
-    font-size: 14px;
-  }
-
-  &__ph {
-    color: $ui-text-3;
-  }
-}
-
-.picker-list {
-  /* 高度的「基准」是 56vh（键盘收起时弹层按内容撑，就是它顶着）；
-     键盘弹起后弹层有了确定高度，这里靠 flex-grow 把剩余空间吃掉、
-     靠 flex-shrink 在空间不够时缩 —— 内容正好等于弹层高，弹层自己就不会溢出滚动，
-     也就不会把滚动链甩给下层页面。min-height: 0 是缩的前提（flex 子项默认 auto 不肯缩）。 */
-  height: 56vh;
-  min-height: 0;
-  flex-grow: 1;
-  /* 列表滑到头之后**不要**把滚动继续传给页面（真机现象：继续上滑会把下层
-     「图片解析」整页一起带着滚，弹层跟着页面跑）。 */
-  overscroll-behavior: contain;
-  /* ⚠️ width: auto 不能省：uni.css 里 `uni-scroll-view { width: 100% }`，
-     而 **width: 100% 是不扣 margin 的** —— 光写 margin 0 16px 的话，盒子仍是整屏宽、
-     再往右溢出 16px，整个弹层因此可以左右滑（真机实测：列表能横向拖走）。
-     写成 auto，块级元素才会按「父宽 - margin」算宽。 */
-  width: auto;
-  margin: 0 16px 20px;
-  border: 1px solid $ui-hairline;
-  border-radius: $ui-radius-md;
-}
 
 /* 「清空」：与结果区那族胶囊同一套尺寸与配色。
    它是唯一一个没写底色的按钮 —— uni 给 <button> 预置的 #f8f8f8 灰底 + ::after 描边
@@ -1818,48 +1641,7 @@ onUnmounted(() => {
   color: $ui-text-3;
 }
 
-/* 列表区的空状态：与 ProductSelectDialog 的 .picker__empty 同款（靠上留白），
-   它占的是列表区里的一行，不改变弹层高度 */
-.picker-state {
-  padding: 40px 16px;
-  color: $ui-text-3;
-  font-size: 14px;
-  text-align: center;
-}
 
-.picker-item {
-  display: flex;
-  /* 名称可能换行，编码跟第一行齐（居中的话多行名称会把编码吊在中间） */
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-
-  &:not(:first-child) {
-    border-top: 1px solid $ui-hairline;
-  }
-
-  &__code {
-    flex-shrink: 0;
-    width: 112px;
-    color: $ui-text;
-    font-family: ui-monospace, monospace;
-    font-size: 14px;
-  }
-
-  /* 名称不截断：主数据里的名字普遍二三十个字（HND-D150_200KG_塑料桶…），
-     单行省略号下根本认不出是哪个。让它换行，行高跟着内容走。
-     单位不再单独占一列 —— 选中物料时本来就会按编码带出单位（见 selectMaterial），
-     列在这里只是白占宽度、把名称挤没。 */
-  &__name {
-    flex: 1;
-    min-width: 0;
-    color: $ui-text-2;
-    font-size: 14px;
-    line-height: 1.45;
-    word-break: break-all;
-    white-space: normal;
-  }
-}
 
 /* ===== 解析结果 =====
    两套排版共用一份 DOM，靠下面这个断点切换（不用两套模板 —— 两套模板意味着
