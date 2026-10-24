@@ -609,7 +609,7 @@ const popupStyle =
     </view>
 
     <!-- 默认时间（首次生成新月份时用这套值） -->
-    <wd-popup v-model="settingsOpen" position="center" round :duration="220" custom-style="width: 86%;">
+    <wd-popup v-model="settingsOpen" position="center" round :lock-scroll="true" :duration="220" custom-style="width: 86%;">
       <view class="st">
         <text class="st__title">默认上下班时间</text>
         <text class="st__hint">
@@ -651,6 +651,7 @@ const popupStyle =
       position="bottom"
       round
       safe-area-inset-bottom
+      :lock-scroll="true"
       :duration="280"
       :custom-style="popupStyle"
     >
@@ -760,6 +761,9 @@ const popupStyle =
 .at {
   padding: 16rpx 20rpx 40rpx;
   box-sizing: border-box;
+  /* 页面本体也不允许横向拖动（弹层打开时最容易被看到） */
+  overflow-x: hidden;
+  touch-action: pan-y;
 }
 
 .at__head {
@@ -1080,11 +1084,23 @@ const popupStyle =
 }
 
 /* ===== 编辑弹层（2026-10-24 重排：标签在上、输入占满、忘打不再被挤出屏幕）===== */
+/*
+ * 弹层不能被左右拖走（2026-10-24，使用方：「弹层本身能被左右拖动」）。
+ *
+ * 根因不是弹层在拖，而是**整页在横向跟手**：弹层是固定层，页面一动，
+ * 看起来就像抽屉被拖走。`touch-action: pan-y` 明确只允许竖向手势，
+ * 横向的 pan 由浏览器直接忽略；再关掉横向溢出与弹性回弹。
+ */
 .ed {
   display: flex;
   flex-direction: column;
   min-height: 0;
   max-height: 88vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .ed__grabber {
@@ -1142,6 +1158,9 @@ const popupStyle =
   flex: 1;
   min-height: 0;
   padding: 4rpx 32rpx 8rpx;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .ed__block {
