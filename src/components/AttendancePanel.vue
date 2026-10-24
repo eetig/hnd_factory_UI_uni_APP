@@ -595,10 +595,16 @@ const popupStyle =
           <template v-if="cell">
             <text class="at__day">{{ Number(cell.workDate.slice(-2)) }}</text>
             <text v-if="durationText(cell)" class="at__dur">{{ durationText(cell) }}</text>
-            <view v-if="cell.dayType === 'overtime'" class="at__tag">加班</view>
-            <view v-else-if="cell.dayType === 'comp'" class="at__tag">调休</view>
-            <view v-if="cell.hasDuty" class="at__tag at__tag--duty">值班</view>
-            <text v-if="missCountOf(cell)" class="at__miss">忘{{ missCountOf(cell) }}</text>
+            <!--
+              标签压成一行（2026-10-24）：原来「加班」「值班」各占一行，加上日期和时长共 4 行，
+              比格子还高，字直接溢出边框。现在加班/调休 + 忘打并排一行；
+              值班靠**整格绿底 + 右上角绿点**表达（已经够显眼，不再占一行文字）。
+            -->
+            <view class="at__tags">
+              <text v-if="cell.dayType === 'overtime'" class="at__tag">加班</text>
+              <text v-else-if="cell.dayType === 'comp'" class="at__tag">调休</text>
+              <text v-if="missCountOf(cell)" class="at__miss">忘{{ missCountOf(cell) }}</text>
+            </view>
           </template>
         </view>
       </view>
@@ -699,34 +705,49 @@ const popupStyle =
           <!-- 时间：标签在上、输入框占满整行，右侧只放一个小「忘打」chip -->
           <view v-if="needsTimes" class="ed__block">
             <text class="ed__label">时间</text>
-            <view class="ed__time-row">
-              <text class="ed__time-name">{{ isOvertime ? '上午上班' : '上班' }}</text>
+            <!--
+              每一段时间改成**上下两行**（2026-10-24，使用方：「输入框都超出右边界了」）。
+              原来名称+输入框+忘打挤在一行，uni 的 input 有默认宽度、不肯收缩 ⇒ 必然溢出。
+              现在：第一行 = 名称 + 忘打 chip，第二行 = 输入框占满整宽，永远塞得下。
+            -->
+            <view class="ed__time">
+              <view class="ed__time-head">
+                <text class="ed__time-name">{{ isOvertime ? '上午上班' : '上班' }}</text>
+                <view class="ed__chip" :class="{ 'is-on': form.missAmIn }" @click="form.missAmIn = !form.missAmIn">
+                  <text>{{ form.missAmIn ? '忘打卡' : '记忘打' }}</text>
+                </view>
+              </view>
               <input v-model="form.amIn" class="ed__time-input" placeholder="08:00" placeholder-style="color: var(--ui-text-3)" />
-              <view class="ed__chip" :class="{ 'is-on': form.missAmIn }" @click="form.missAmIn = !form.missAmIn">
-                <text>忘打</text>
-              </view>
             </view>
-            <view class="ed__time-row">
-              <text class="ed__time-name">{{ isOvertime ? '午休' : '下班' }}</text>
+
+            <view class="ed__time">
+              <view class="ed__time-head">
+                <text class="ed__time-name">{{ isOvertime ? '午休' : '下班' }}</text>
+                <view class="ed__chip" :class="{ 'is-on': form.missAmOut }" @click="form.missAmOut = !form.missAmOut">
+                  <text>{{ form.missAmOut ? '忘打卡' : '记忘打' }}</text>
+                </view>
+              </view>
               <input v-model="form.amOut" class="ed__time-input" placeholder="17:00" placeholder-style="color: var(--ui-text-3)" />
-              <view class="ed__chip" :class="{ 'is-on': form.missAmOut }" @click="form.missAmOut = !form.missAmOut">
-                <text>忘打</text>
-              </view>
             </view>
+
             <template v-if="isOvertime">
-              <view class="ed__time-row">
-                <text class="ed__time-name">下午上班</text>
+              <view class="ed__time">
+                <view class="ed__time-head">
+                  <text class="ed__time-name">下午上班</text>
+                  <view class="ed__chip" :class="{ 'is-on': form.missPmIn }" @click="form.missPmIn = !form.missPmIn">
+                    <text>{{ form.missPmIn ? '忘打卡' : '记忘打' }}</text>
+                  </view>
+                </view>
                 <input v-model="form.pmIn" class="ed__time-input" placeholder="13:00" placeholder-style="color: var(--ui-text-3)" />
-                <view class="ed__chip" :class="{ 'is-on': form.missPmIn }" @click="form.missPmIn = !form.missPmIn">
-                  <text>忘打</text>
-                </view>
               </view>
-              <view class="ed__time-row">
-                <text class="ed__time-name">下午下班</text>
-                <input v-model="form.pmOut" class="ed__time-input" placeholder="17:30" placeholder-style="color: var(--ui-text-3)" />
-                <view class="ed__chip" :class="{ 'is-on': form.missPmOut }" @click="form.missPmOut = !form.missPmOut">
-                  <text>忘打</text>
+              <view class="ed__time">
+                <view class="ed__time-head">
+                  <text class="ed__time-name">下午下班</text>
+                  <view class="ed__chip" :class="{ 'is-on': form.missPmOut }" @click="form.missPmOut = !form.missPmOut">
+                    <text>{{ form.missPmOut ? '忘打卡' : '记忘打' }}</text>
+                  </view>
                 </view>
+                <input v-model="form.pmOut" class="ed__time-input" placeholder="17:30" placeholder-style="color: var(--ui-text-3)" />
               </view>
             </template>
           </view>
@@ -900,7 +921,8 @@ const popupStyle =
 .at__grid-wrap {
   margin-top: 6rpx;
   overflow: hidden;
-  height: 672rpx;
+  /* 6 行 × 120rpx（2026-10-24：原来 112rpx 装不下"日期+时长+加班+值班"四行，字溢出边框） */
+  height: 720rpx;
 }
 
 .at__grid {
@@ -915,7 +937,8 @@ const popupStyle =
 
 .at__cell {
   width: calc(100% / 7);
-  height: 112rpx;
+  height: 120rpx;
+  overflow: hidden;
   padding: 6rpx 4rpx;
   box-sizing: border-box;
   border-radius: 12rpx;
@@ -998,9 +1021,18 @@ const popupStyle =
   color: var(--ui-text);
 }
 
+.at__tags {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 24rpx;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .at__tag {
   font-size: 18rpx;
-  line-height: 1.2;
+  line-height: 1;
   color: var(--ui-text-2);
 }
 
@@ -1013,6 +1045,7 @@ const popupStyle =
 
 .at__miss {
   font-size: 17rpx;
+  line-height: 1;
   color: #e6a23c;
 }
 
@@ -1258,24 +1291,29 @@ const popupStyle =
   color: var(--ui-text-3);
 }
 
-/* 时间行：名称固定宽 → 输入框 flex 占满 → 忘打 chip 固定宽，永不挤出 */
-.ed__time-row {
+/* 每一段时间：上下两行（名称 + 忘打 在上，输入框整宽在下） */
+.ed__time {
+  margin-bottom: 14rpx;
+  min-width: 0;
+}
+
+.ed__time-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12rpx;
-  margin-bottom: 12rpx;
+  margin-bottom: 8rpx;
 }
 
 .ed__time-name {
-  flex-shrink: 0;
-  width: 118rpx;
   font-size: 24rpx;
   color: var(--ui-text-2);
 }
 
 .ed__time-input {
-  flex: 1;
-  min-width: 0;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   height: 76rpx;
   padding: 0 18rpx;
   border-radius: 14rpx;
@@ -1288,13 +1326,13 @@ const popupStyle =
 
 .ed__chip {
   flex-shrink: 0;
-  width: 96rpx;
-  height: 76rpx;
-  border-radius: 14rpx;
+  height: 52rpx;
+  padding: 0 18rpx;
+  border-radius: 26rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22rpx;
+  font-size: 21rpx;
   color: var(--ui-text-3);
   background-color: var(--ui-raise-2);
   border: 2rpx solid transparent;
@@ -1308,6 +1346,9 @@ const popupStyle =
 }
 
 .ed__note {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   height: 80rpx;
   padding: 0 18rpx;
   border-radius: 14rpx;
