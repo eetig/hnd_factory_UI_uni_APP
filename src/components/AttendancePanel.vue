@@ -44,6 +44,64 @@ const summary = reactive({
 const loading = ref(false)
 const loadError = ref('')
 
+/*
+ * 默认时间（2026-10-24，变更-171 续）。
+ *
+ * 使用方给的标准作息：08:00 上班、12:00-13:30 午休、17:30 下班 ⇒ 一个工作日 **8 小时**。
+ * 首次打开某月时后端就按这套把工作日铺好（所以打开是"出勤 19 天"而不是"缺段 19 天"）。
+ * 这里只负责"改这套默认值"，改完只影响之后新生成的月份。
+ */
+const settings = reactive({
+  workStart: '08:00',
+  workEnd: '17:30',
+  lunchStart: '12:00',
+  lunchEnd: '13:30',
+  standardMinutes: 480,
+})
+const settingsOpen = ref(false)
+const settingsSaving = ref(false)
+const settingsError = ref('')
+const settingsForm = reactive({ workStart: '', workEnd: '', lunchStart: '', lunchEnd: '' })
+
+function openSettings() {
+  settingsForm.workStart = settings.workStart
+  settingsForm.workEnd = settings.workEnd
+  settingsForm.lunchStart = settings.lunchStart
+  settingsForm.lunchEnd = settings.lunchEnd
+  settingsError.value = ''
+  settingsOpen.value = true
+}
+
+async function saveSettings() {
+  if (settingsSaving.value) return
+  settingsError.value = ''
+  const times = {
+    workStart: normalizeTime(settingsForm.workStart),
+    workEnd: normalizeTime(settingsForm.workEnd),
+    lunchStart: normalizeTime(settingsForm.lunchStart),
+    lunchEnd: normalizeTime(settingsForm.lunchEnd),
+  }
+  for (const [key, value] of Object.entries(times)) {
+    if (!value) {
+      settingsError.value = '时间格式应为 08:00'
+      return
+    }
+  }
+  settingsSaving.value = true
+  try {
+    const res = await request.post('/api/attendance/settings', times)
+    const body = res.data || {}
+    if (body.success === false) throw new Error(body.msg || '保存失败')
+    toast.success('默认时间已保存')
+    settingsOpen.value = false
+    loadMonth()
+  } catch (e) {
+    settingsError.value = e?.response?.data?.msg || e?.message || '保存失败'
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
 function todayMonth() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -72,6 +130,13 @@ async function loadMonth() {
     summary.totalMinutes = data.totalMinutes || 0
     summary.missCount = data.missCount || 0
     summary.incompleteDays = data.incompleteDays || 0
+    if (data.settings) {
+      settings.workStart = (data.settings.workStart || '08:00').slice(0, 5)
+      settings.workEnd = (data.settings.workEnd || '17:30').slice(0, 5)
+      settings.lunchStart = (data.settings.lunchStart || '12:00').slice(0, 5)
+      settings.lunchEnd = (data.settings.lunchEnd || '13:30').slice(0, 5)
+      settings.standardMinutes = data.settings.standardMinutes || 480
+    }
   } catch (e) {
     loadError.value = e?.response?.data?.msg || e?.message || '加载失败'
     days.value = []
@@ -187,6 +252,17 @@ function pickType(type) {
     form.pmOut = ''
     form.missPmIn = false
     form.missPmOut = false
+  }
+  /*
+   * 切到「休息日加班」：按标准作息把 4 段预填好
+   * （使用方：「休息日加班时间是 8:00-12:00、13:30-17:30，和平常一样，
+   *   只不过加班日人事要查午休卡」）⇒ 上午 上班→午休、下午 上班→下班 各一段。
+   */
+  if (type === 'overtime' && !form.amIn && !form.amOut) {
+    form.amIn = settings.workStart
+    form.amOut = settings.lunchStart
+    form.pmIn = settings.lunchEnd
+    form.pmOut = settings.workEnd
   }
 }
 
@@ -305,8 +381,13 @@ const popupStyle =
         <text class="at__month-text">{{ month }}</text>
         <text class="at__arrow" @click="shiftMonth(1)">›</text>
       </view>
-      <view class="at__copy" @click="copyMonth">
-        <text>复制本月</text>
+      <view class="at__actions">
+        <view class="at__copy" @click="openSettings">
+          <text>默认时间</text>
+        </view>
+        <view class="at__copy" @click="copyMonth">
+          <text>复制本月</text>
+        </view>
       </view>
     </view>
 
@@ -366,6 +447,43 @@ const popupStyle =
     <view class="at__hint">
       <text>默认已按「周一到周五 + 每月最后一个周六上班、法定节假日休息」填好，有变动点那天改</text>
     </view>
+
+    <!-- 默认时间（首次生成新月份时用这套值） -->
+    <wd-popup v-model="settingsOpen" position="center" round :duration="220" custom-style="width: 86%;">
+      <view class="st">
+        <text class="st__title">默认上下班时间</text>
+        <text class="st__hint">
+          标准工作日按「下班 − 上班 − 午休」算，现在每天 {{ Math.round(settings.standardMinutes / 60 * 10) / 10 }} 小时。
+          只影响之后新生成的月份，已生成的不动。
+        </text>
+
+        <view v-if="settingsError" class="st__error"><text>{{ settingsError }}</text></view>
+
+        <view class="st__row">
+          <text class="st__label">上班</text>
+          <input v-model="settingsForm.workStart" class="st__input" placeholder="08:00" />
+        </view>
+        <view class="st__row">
+          <text class="st__label">午休开始</text>
+          <input v-model="settingsForm.lunchStart" class="st__input" placeholder="12:00" />
+        </view>
+        <view class="st__row">
+          <text class="st__label">午休结束</text>
+          <input v-model="settingsForm.lunchEnd" class="st__input" placeholder="13:30" />
+        </view>
+        <view class="st__row">
+          <text class="st__label">下班</text>
+          <input v-model="settingsForm.workEnd" class="st__input" placeholder="17:30" />
+        </view>
+
+        <view class="st__foot">
+          <view class="ed__btn ed__btn--ghost" @click="settingsOpen = false"><text>取消</text></view>
+          <view class="ed__btn ed__btn--primary" :class="{ 'is-busy': settingsSaving }" @click="saveSettings">
+            <text>{{ settingsSaving ? '保存中…' : '保存' }}</text>
+          </view>
+        </view>
+      </view>
+    </wd-popup>
 
     <!-- 编辑弹层 -->
     <wd-popup
@@ -496,6 +614,11 @@ const popupStyle =
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ui-text);
+}
+
+.at__actions {
+  display: flex;
+  gap: 10rpx;
 }
 
 .at__copy {
@@ -654,6 +777,66 @@ const popupStyle =
   font-size: 21rpx;
   line-height: 1.6;
   color: var(--ui-text-3);
+}
+
+/* ===== 默认时间弹层 ===== */
+.st {
+  padding: 26rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+}
+
+.st__title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.st__hint {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: var(--ui-text-3);
+}
+
+.st__error {
+  margin-top: 12rpx;
+  padding: 10rpx 16rpx;
+  border-radius: 12rpx;
+  font-size: 23rpx;
+  color: #f56c6c;
+  background-color: rgba(245, 108, 108, 0.12);
+}
+
+.st__row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 12rpx 0;
+}
+
+.st__label {
+  flex-shrink: 0;
+  width: 130rpx;
+  font-size: 26rpx;
+  color: var(--ui-text-2);
+}
+
+.st__input {
+  flex: 1;
+  height: 72rpx;
+  padding: 0 18rpx;
+  border-radius: 14rpx;
+  font-size: 26rpx;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text);
+  background-color: var(--ui-raise);
+  border: 2rpx solid var(--ui-border);
+}
+
+.st__foot {
+  display: flex;
+  gap: 14rpx;
+  margin-top: 18rpx;
 }
 
 /* ===== 编辑弹层 ===== */
