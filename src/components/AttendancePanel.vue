@@ -59,6 +59,7 @@ const settings = reactive({
   lunchStart: '12:00',
   lunchEnd: '13:30',
   standardMinutes: 480,
+  dutyRate: 50,
 })
 const settingsOpen = ref(false)
 const settingsSaving = ref(false)
@@ -140,6 +141,7 @@ async function loadMonth() {
       settings.lunchStart = (data.settings.lunchStart || '12:00').slice(0, 5)
       settings.lunchEnd = (data.settings.lunchEnd || '13:30').slice(0, 5)
       settings.standardMinutes = data.settings.standardMinutes || 480
+      settings.dutyRate = Number(data.settings.dutyRate || 50)
     }
   } catch (e) {
     loadError.value = e?.response?.data?.msg || e?.message || '加载失败'
@@ -351,6 +353,16 @@ function openDay(day) {
 }
 
 const needsTimes = computed(() => form.dayType === 'work' || form.dayType === 'overtime')
+
+/** 弹层标题右侧的摘要（例如「工作日 · 值班」） */
+const dutySummaryText = computed(() => (form.hasDuty ? ' · 值班' : ''))
+
+/** 值班单价（来自「默认时间」设置里的 duty_rate，默认 50 元/次） */
+const dutyRateText = computed(() => {
+  const rate = Number(settings.dutyRate ?? 50)
+  if (!Number.isFinite(rate)) return '50'
+  return Number.isInteger(rate) ? String(rate) : rate.toFixed(2)
+})
 const isOvertime = computed(() => form.dayType === 'overtime')
 
 function pickType(type) {
@@ -632,15 +644,20 @@ const popupStyle =
     >
       <view class="ed">
         <view class="ed__grabber"></view>
+
         <view class="ed__head">
-          <text class="ed__title">{{ form.workDate }}</text>
+          <view class="ed__head-main">
+            <text class="ed__date">{{ form.workDate }}</text>
+            <text class="ed__meta">{{ TYPE_LABELS[form.dayType] }}{{ dutySummaryText }}</text>
+          </view>
           <text class="ed__close" @click="editorOpen = false">关闭</text>
         </view>
 
         <view v-if="formError" class="ed__error"><text>{{ formError }}</text></view>
 
         <scroll-view class="ed__body" scroll-y>
-          <view class="ed__row">
+          <!-- 类型：四个胶囊，独占一行 -->
+          <view class="ed__block">
             <text class="ed__label">类型</text>
             <view class="ed__types">
               <view
@@ -655,56 +672,61 @@ const popupStyle =
             </view>
           </view>
 
-          <template v-if="needsTimes">
-            <view class="ed__row">
-              <text class="ed__label">{{ isOvertime ? '上午上班' : '上班' }}</text>
-              <input v-model="form.amIn" class="ed__input" placeholder="08:00" placeholder-style="color: var(--ui-text-3)" />
-              <view class="ed__miss" :class="{ 'is-on': form.missAmIn }" @click="form.missAmIn = !form.missAmIn">
-                <text>忘打</text>
+          <!-- 值班：独立开关（使用方 2026-10-24 说"没找到录入值班"，做成明显的开关 + 金额） -->
+          <view class="ed__block">
+            <view class="ed__switch" :class="{ 'is-on': form.hasDuty }" @click="form.hasDuty = !form.hasDuty">
+              <view class="ed__switch-box"><text v-if="form.hasDuty" class="ed__switch-tick">✓</text></view>
+              <view class="ed__switch-text">
+                <text class="ed__switch-title">值班（夜班 20:00-次日 08:00）</text>
+                <text class="ed__switch-sub">按次计费 ￥{{ dutyRateText }} / 次 · 与白班、加班可同时存在</text>
               </view>
             </view>
-            <view class="ed__row">
-              <text class="ed__label">{{ isOvertime ? '午休' : '下班' }}</text>
-              <input v-model="form.amOut" class="ed__input" placeholder="17:00" placeholder-style="color: var(--ui-text-3)" />
-              <view class="ed__miss" :class="{ 'is-on': form.missAmOut }" @click="form.missAmOut = !form.missAmOut">
-                <text>忘打</text>
-              </view>
-            </view>
+          </view>
 
+          <!-- 时间：标签在上、输入框占满整行，右侧只放一个小「忘打」chip -->
+          <view v-if="needsTimes" class="ed__block">
+            <text class="ed__label">时间</text>
+            <view class="ed__time-row">
+              <text class="ed__time-name">{{ isOvertime ? '上午上班' : '上班' }}</text>
+              <input v-model="form.amIn" class="ed__time-input" placeholder="08:00" placeholder-style="color: var(--ui-text-3)" />
+              <view class="ed__chip" :class="{ 'is-on': form.missAmIn }" @click="form.missAmIn = !form.missAmIn">
+                <text>忘打</text>
+              </view>
+            </view>
+            <view class="ed__time-row">
+              <text class="ed__time-name">{{ isOvertime ? '午休' : '下班' }}</text>
+              <input v-model="form.amOut" class="ed__time-input" placeholder="17:00" placeholder-style="color: var(--ui-text-3)" />
+              <view class="ed__chip" :class="{ 'is-on': form.missAmOut }" @click="form.missAmOut = !form.missAmOut">
+                <text>忘打</text>
+              </view>
+            </view>
             <template v-if="isOvertime">
-              <view class="ed__row">
-                <text class="ed__label">下午上班</text>
-                <input v-model="form.pmIn" class="ed__input" placeholder="13:00" placeholder-style="color: var(--ui-text-3)" />
-                <view class="ed__miss" :class="{ 'is-on': form.missPmIn }" @click="form.missPmIn = !form.missPmIn">
+              <view class="ed__time-row">
+                <text class="ed__time-name">下午上班</text>
+                <input v-model="form.pmIn" class="ed__time-input" placeholder="13:00" placeholder-style="color: var(--ui-text-3)" />
+                <view class="ed__chip" :class="{ 'is-on': form.missPmIn }" @click="form.missPmIn = !form.missPmIn">
                   <text>忘打</text>
                 </view>
               </view>
-              <view class="ed__row">
-                <text class="ed__label">下午下班</text>
-                <input v-model="form.pmOut" class="ed__input" placeholder="17:30" placeholder-style="color: var(--ui-text-3)" />
-                <view class="ed__miss" :class="{ 'is-on': form.missPmOut }" @click="form.missPmOut = !form.missPmOut">
+              <view class="ed__time-row">
+                <text class="ed__time-name">下午下班</text>
+                <input v-model="form.pmOut" class="ed__time-input" placeholder="17:30" placeholder-style="color: var(--ui-text-3)" />
+                <view class="ed__chip" :class="{ 'is-on': form.missPmOut }" @click="form.missPmOut = !form.missPmOut">
                   <text>忘打</text>
                 </view>
               </view>
             </template>
-          </template>
-
-          <view class="ed__row">
-            <text class="ed__label">值班</text>
-            <view class="ed__duty" :class="{ 'is-on': form.hasDuty }" @click="form.hasDuty = !form.hasDuty">
-              <text>{{ form.hasDuty ? '已值班（20:00-次日08:00）' : '点一下记一次值班' }}</text>
-            </view>
           </view>
 
-          <view class="ed__row">
+          <view class="ed__block">
             <text class="ed__label">备注</text>
-            <input v-model="form.note" class="ed__input" placeholder="请假事由等（选填）" placeholder-style="color: var(--ui-text-3)" />
+            <input v-model="form.note" class="ed__note" placeholder="请假事由等（选填）" placeholder-style="color: var(--ui-text-3)" />
           </view>
         </scroll-view>
 
         <view class="ed__foot">
           <view v-if="form.persisted && canEdit" class="ed__del" @click="removeDay">
-            <text>清除这天</text>
+            <text>清除</text>
           </view>
           <view class="ed__btn ed__btn--ghost" @click="editorOpen = false"><text>取消</text></view>
           <view
@@ -1018,12 +1040,12 @@ const popupStyle =
   margin-top: 18rpx;
 }
 
-/* ===== 编辑弹层 ===== */
+/* ===== 编辑弹层（2026-10-24 重排：标签在上、输入占满、忘打不再被挤出屏幕）===== */
 .ed {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  max-height: 86vh;
+  max-height: 88vh;
 }
 
 .ed__grabber {
@@ -1038,23 +1060,38 @@ const popupStyle =
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18rpx 28rpx 10rpx;
+  gap: 16rpx;
+  padding: 20rpx 32rpx 6rpx;
 }
 
-.ed__title {
-  font-size: 30rpx;
-  font-weight: 700;
+.ed__head-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.ed__date {
+  font-size: 34rpx;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--ui-text);
 }
 
+.ed__meta {
+  font-size: 23rpx;
+  color: var(--ui-text-3);
+}
+
 .ed__close {
+  flex-shrink: 0;
+  padding: 8rpx 4rpx;
   font-size: 26rpx;
   color: var(--ui-text-2);
 }
 
 .ed__error {
-  margin: 0 28rpx 8rpx;
+  margin: 6rpx 32rpx 0;
   padding: 12rpx 18rpx;
   border-radius: 14rpx;
   font-size: 24rpx;
@@ -1065,87 +1102,140 @@ const popupStyle =
 .ed__body {
   flex: 1;
   min-height: 0;
-  padding: 4rpx 28rpx;
+  padding: 4rpx 32rpx 8rpx;
 }
 
-.ed__row {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-  padding: 10rpx 0;
+.ed__block {
+  padding: 14rpx 0;
 }
 
 .ed__label {
-  flex-shrink: 0;
-  width: 148rpx;
-  font-size: 26rpx;
-  color: var(--ui-text-2);
+  display: block;
+  margin-bottom: 10rpx;
+  font-size: 23rpx;
+  font-weight: 600;
+  color: var(--ui-text-3);
 }
 
 .ed__types {
-  flex: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 10rpx;
+  gap: 12rpx;
 }
 
 .ed__type {
-  height: 60rpx;
-  padding: 0 20rpx;
-  border-radius: 30rpx;
+  height: 64rpx;
+  padding: 0 22rpx;
+  border-radius: 32rpx;
   display: flex;
   align-items: center;
-  font-size: 24rpx;
+  font-size: 25rpx;
   color: var(--ui-text-2);
   background-color: var(--ui-raise-2);
   border: 2rpx solid var(--ui-border);
 
   &.is-on {
     color: #fff;
+    font-weight: 600;
     background-color: var(--ui-brand, #b4551f);
     border-color: transparent;
   }
 }
 
-.ed__duty {
-  flex: 1;
-  height: 72rpx;
-  padding: 0 18rpx;
-  border-radius: 14rpx;
+/* 值班开关：整行可点，带勾选框与单价说明 */
+.ed__switch {
   display: flex;
   align-items: center;
-  font-size: 24rpx;
-  color: var(--ui-text-3);
-  background-color: var(--ui-raise-2);
+  gap: 16rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  background-color: var(--ui-raise);
   border: 2rpx solid var(--ui-border);
+  transition: background-color 160ms ease, border-color 160ms ease;
 
   &.is-on {
-    color: #3f9d6b;
     background-color: rgba(63, 157, 107, 0.12);
-    border-color: rgba(63, 157, 107, 0.35);
+    border-color: rgba(63, 157, 107, 0.42);
   }
 }
 
-.ed__input {
+.ed__switch-box {
+  flex-shrink: 0;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3rpx solid var(--ui-border-strong);
+  background-color: transparent;
+
+  .ed__switch.is-on & {
+    border-color: #3f9d6b;
+    background-color: #3f9d6b;
+  }
+}
+
+.ed__switch-tick {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+.ed__switch-text {
+  min-width: 0;
+}
+
+.ed__switch-title {
+  display: block;
+  font-size: 26rpx;
+  color: var(--ui-text);
+}
+
+.ed__switch-sub {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: var(--ui-text-3);
+}
+
+/* 时间行：名称固定宽 → 输入框 flex 占满 → 忘打 chip 固定宽，永不挤出 */
+.ed__time-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.ed__time-name {
+  flex-shrink: 0;
+  width: 118rpx;
+  font-size: 24rpx;
+  color: var(--ui-text-2);
+}
+
+.ed__time-input {
   flex: 1;
   min-width: 0;
-  height: 72rpx;
+  height: 76rpx;
   padding: 0 18rpx;
   border-radius: 14rpx;
-  font-size: 26rpx;
+  font-size: 28rpx;
   font-variant-numeric: tabular-nums;
   color: var(--ui-text);
   background-color: var(--ui-raise);
   border: 2rpx solid var(--ui-border);
 }
 
-.ed__miss {
+.ed__chip {
   flex-shrink: 0;
-  height: 72rpx;
-  padding: 0 18rpx;
+  width: 96rpx;
+  height: 76rpx;
   border-radius: 14rpx;
   display: flex;
   align-items: center;
+  justify-content: center;
   font-size: 22rpx;
   color: var(--ui-text-3);
   background-color: var(--ui-raise-2);
@@ -1153,9 +1243,20 @@ const popupStyle =
 
   &.is-on {
     color: #e6a23c;
-    border-color: rgba(230, 162, 60, 0.4);
-    background-color: rgba(230, 162, 60, 0.12);
+    font-weight: 600;
+    border-color: rgba(230, 162, 60, 0.45);
+    background-color: rgba(230, 162, 60, 0.14);
   }
+}
+
+.ed__note {
+  height: 80rpx;
+  padding: 0 18rpx;
+  border-radius: 14rpx;
+  font-size: 26rpx;
+  color: var(--ui-text);
+  background-color: var(--ui-raise);
+  border: 2rpx solid var(--ui-border);
 }
 
 .ed__foot {
@@ -1163,16 +1264,16 @@ const popupStyle =
   display: flex;
   align-items: center;
   gap: 14rpx;
-  padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom));
+  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
   border-top: 2rpx solid var(--ui-hairline);
   background-color: var(--ui-sheet-fill);
 }
 
 .ed__del {
   flex-shrink: 0;
-  height: 76rpx;
-  padding: 0 20rpx;
-  border-radius: 38rpx;
+  height: 80rpx;
+  padding: 0 22rpx;
+  border-radius: 40rpx;
   display: flex;
   align-items: center;
   font-size: 24rpx;
@@ -1181,16 +1282,16 @@ const popupStyle =
 }
 
 .ed__btn {
-  height: 76rpx;
-  border-radius: 38rpx;
+  height: 80rpx;
+  border-radius: 40rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 27rpx;
+  font-size: 28rpx;
   font-weight: 600;
 
   &--ghost {
-    flex: 0 0 150rpx;
+    flex: 0 0 140rpx;
     color: var(--ui-text-2);
     background-color: var(--ui-raise-2);
   }
