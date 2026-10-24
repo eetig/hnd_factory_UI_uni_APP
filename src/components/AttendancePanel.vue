@@ -260,6 +260,8 @@ let touchStartY = 0
 let gestureAxis = '' // '' | 'h' | 'v'
 
 function onTouchStart(e) {
+  // 弹层开着时月历不该跟着动（使用方 2026-10-24：「录入抽屉改成不能左右滑动」）
+  if (editorOpen.value || settingsOpen.value) return
   if (slide.animating) return
   const t = e.touches?.[0]
   if (!t) return
@@ -269,6 +271,7 @@ function onTouchStart(e) {
 }
 
 function onTouchMove(e) {
+  if (editorOpen.value || settingsOpen.value) return
   if (slide.animating) return
   const t = e.touches?.[0]
   if (!t) return
@@ -284,6 +287,7 @@ function onTouchMove(e) {
 }
 
 function onTouchEnd() {
+  if (editorOpen.value || settingsOpen.value) return
   if (slide.animating) return
   const dx = slide.x
   gestureAxis = ''
@@ -500,8 +504,12 @@ async function copyMonth() {
   }
 }
 
+/*
+ * 弹层背景不再用纯白（使用方：「抽屉最下方的白色感觉跟 App 颜色不搭，难看」）。
+ * 取 App 自己的"抬升面"色（跟随主题/配色），底部按钮条再浅一档，并压一条发丝线做分界。
+ */
 const popupStyle =
-  'max-height: 86vh; display: flex; flex-direction: column; background-color: var(--ui-sheet-fill);'
+  'max-height: 88vh; display: flex; flex-direction: column; background-color: var(--ui-sheet-fill);'
 </script>
 
 <template>
@@ -577,7 +585,11 @@ const popupStyle =
           v-for="(cell, index) in grid"
           :key="cell ? cell.workDate : `pad-${index}`"
           class="at__cell"
-          :class="[cell ? cellTone(cell) : 'is-pad', cell && cell.workDate === todayStr() ? 'is-today' : '']"
+          :class="[
+            cell ? cellTone(cell) : 'is-pad',
+            cell && cell.hasDuty ? 'is-duty' : '',
+            cell && cell.workDate === todayStr() ? 'is-today' : '',
+          ]"
           @click="cell && openDay(cell)"
         >
           <template v-if="cell">
@@ -936,6 +948,33 @@ const popupStyle =
     border: 2rpx solid rgba(63, 157, 107, 0.3);
   }
 
+  /*
+   * 值班日：整格淡绿底 + 顶部绿条 + 右上角绿点
+   * （使用方 2026-10-24：「日历中的值班用显眼的颜色，这样能直观看到哪天我值班了」）
+   * 原来只有一个 18rpx 的「值班」小字，扫一眼看不出来。
+   */
+  &.is-duty {
+    background-color: rgba(63, 157, 107, 0.18) !important;
+    border: 2rpx solid rgba(63, 157, 107, 0.5) !important;
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 6rpx;
+      right: 6rpx;
+      width: 10rpx;
+      height: 10rpx;
+      border-radius: 50%;
+      background-color: #2f8f5b;
+    }
+
+    .at__tag--duty {
+      color: #2f8f5b;
+      font-weight: 700;
+    }
+  }
+
   /* 今天：品牌色描边 + 淡品牌底，在一堆灰淡格里最跳（使用方要求"一目了然"） */
   &.is-today {
     border: 3rpx solid var(--ui-brand, #b4551f) !important;
@@ -1266,7 +1305,11 @@ const popupStyle =
   gap: 14rpx;
   padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
   border-top: 2rpx solid var(--ui-hairline);
-  background-color: var(--ui-sheet-fill);
+  /* 用 App 的"抬升面"而不是纯白：纯白压在粉色场景上像贴纸（使用方原话：跟 App 颜色不搭） */
+  background-color: var(--ui-raise);
+
+  /* 底部安全区也一起上色，避免最下面露出一条白 */
+  box-shadow: 0 -1rpx 0 var(--ui-hairline);
 }
 
 .ed__del {
