@@ -35,6 +35,8 @@ const days = ref([])
 const summary = reactive({
   workDays: 0,
   overtimeDays: 0,
+  dutyCount: 0,
+  dutyAmount: 0,
   restDays: 0,
   compDays: 0,
   totalMinutes: 0,
@@ -130,6 +132,8 @@ async function loadMonth() {
     summary.totalMinutes = data.totalMinutes || 0
     summary.missCount = data.missCount || 0
     summary.incompleteDays = data.incompleteDays || 0
+    summary.dutyCount = data.dutyCount || 0
+    summary.dutyAmount = Number(data.dutyAmount || 0)
     if (data.settings) {
       settings.workStart = (data.settings.workStart || '08:00').slice(0, 5)
       settings.workEnd = (data.settings.workEnd || '17:30').slice(0, 5)
@@ -210,6 +214,7 @@ const form = reactive({
   missAmOut: false,
   missPmIn: false,
   missPmOut: false,
+  hasDuty: false,
   note: '',
   persisted: false,
 })
@@ -226,6 +231,7 @@ function openDay(day) {
   form.missAmOut = Boolean(day.missAmOut)
   form.missPmIn = Boolean(day.missPmIn)
   form.missPmOut = Boolean(day.missPmOut)
+  form.hasDuty = Boolean(day.hasDuty)
   form.note = day.note || ''
   form.persisted = Boolean(day.persisted)
   formError.value = ''
@@ -292,6 +298,8 @@ async function save() {
     missAmOut: needsTimes.value ? form.missAmOut : false,
     missPmIn: isOvertime.value ? form.missPmIn : false,
     missPmOut: isOvertime.value ? form.missPmOut : false,
+    // 值班：按次计费（默认 50 元/次），与白班/加班可并存，不占时间字段
+    hasDuty: form.hasDuty,
     note: form.note || '',
   }
 
@@ -410,6 +418,10 @@ const popupStyle =
       </view>
     </view>
 
+    <view v-if="summary.dutyCount" class="at__duty">
+      <text>值班 {{ summary.dutyCount }} 次 · ￥{{ summary.dutyAmount }}</text>
+    </view>
+
     <view v-if="summary.missCount || summary.incompleteDays" class="at__warn">
       <text v-if="summary.missCount">忘打卡 {{ summary.missCount }} 段</text>
       <text v-if="summary.incompleteDays">缺段 {{ summary.incompleteDays }} 天</text>
@@ -436,6 +448,7 @@ const popupStyle =
           <text class="at__day">{{ Number(cell.workDate.slice(-2)) }}</text>
           <view v-if="cell.dayType === 'overtime'" class="at__tag">加班</view>
           <view v-else-if="cell.dayType === 'comp'" class="at__tag">调休</view>
+          <view v-if="cell.hasDuty" class="at__tag at__tag--duty">值班</view>
           <text v-if="cell.dayType !== 'rest' && timesOf(cell).length" class="at__times">
             {{ timesOf(cell).join(' ') }}
           </text>
@@ -554,6 +567,13 @@ const popupStyle =
           </template>
 
           <view class="ed__row">
+            <text class="ed__label">值班</text>
+            <view class="ed__duty" :class="{ 'is-on': form.hasDuty }" @click="form.hasDuty = !form.hasDuty">
+              <text>{{ form.hasDuty ? '已值班（20:00-次日08:00）' : '点一下记一次值班' }}</text>
+            </view>
+          </view>
+
+          <view class="ed__row">
             <text class="ed__label">备注</text>
             <input v-model="form.note" class="ed__input" placeholder="请假事由等（选填）" placeholder-style="color: var(--ui-text-3)" />
           </view>
@@ -665,6 +685,19 @@ const popupStyle =
   margin-top: 2rpx;
   font-size: 20rpx;
   color: var(--ui-text-3);
+}
+
+.at__duty {
+  margin-top: 12rpx;
+  padding: 10rpx 16rpx;
+  border-radius: 14rpx;
+  font-size: 22rpx;
+  color: #3f9d6b;
+  background-color: rgba(63, 157, 107, 0.12);
+}
+
+.at__tag--duty {
+  color: #3f9d6b;
 }
 
 .at__warn {
@@ -925,6 +958,25 @@ const popupStyle =
     color: #fff;
     background-color: var(--ui-brand, #b4551f);
     border-color: transparent;
+  }
+}
+
+.ed__duty {
+  flex: 1;
+  height: 72rpx;
+  padding: 0 18rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  font-size: 24rpx;
+  color: var(--ui-text-3);
+  background-color: var(--ui-raise-2);
+  border: 2rpx solid var(--ui-border);
+
+  &.is-on {
+    color: #3f9d6b;
+    background-color: rgba(63, 157, 107, 0.12);
+    border-color: rgba(63, 157, 107, 0.35);
   }
 }
 
