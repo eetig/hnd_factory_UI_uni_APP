@@ -508,8 +508,18 @@ async function copyMonth() {
  * 弹层背景不再用纯白（使用方：「抽屉最下方的白色感觉跟 App 颜色不搭，难看」）。
  * 取 App 自己的"抬升面"色（跟随主题/配色），底部按钮条再浅一档，并压一条发丝线做分界。
  */
+/*
+ * 弹层宽度用 **100vw** 硬定，并 `overflow: hidden`
+ * （2026-10-24 第三次修「输入框超出右边界」）。
+ *
+ * 前两次都在调 flex / padding，但真机上仍溢出 —— 说明问题不在某一层，而在
+ * "整块宽度依赖祖先计算"这件事本身不可靠（uni 的 popup/scroll-view 都会插一层包装）。
+ * 现在：弹层自身钉死 100vw，内部块级元素宽度用 `calc(100vw − 48rpx)` 算，
+ * 与祖先宽度无关，也不依赖 box-sizing 的继承，溢出在数学上不可能。
+ */
 const popupStyle =
-  'max-height: 88vh; display: flex; flex-direction: column; background-color: var(--ui-sheet-fill);'
+  'width: 100vw; max-width: 100vw; max-height: 88vh; display: flex; flex-direction: column;' +
+  'overflow: hidden; background-color: var(--ui-sheet-fill);'
 </script>
 
 <template>
@@ -1129,9 +1139,10 @@ const popupStyle =
   flex-direction: column;
   min-height: 0;
   max-height: 88vh;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
+  width: 100vw;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow: hidden;
   touch-action: pan-y;
   overscroll-behavior: contain;
 }
@@ -1190,14 +1201,22 @@ const popupStyle =
 .ed__body {
   flex: 1;
   min-height: 0;
-  padding: 4rpx 32rpx 8rpx;
+  padding: 4rpx 24rpx 8rpx;
+  box-sizing: border-box;
+  width: 100vw;
+  max-width: 100vw;
   overflow-x: hidden;
   touch-action: pan-y;
   overscroll-behavior: contain;
 }
 
+/* 块宽度 = 100vw − 左右各 24rpx 留白（与祖先无关，永不溢出） */
 .ed__block {
   padding: 14rpx 0;
+  width: calc(100vw - 48rpx);
+  max-width: calc(100vw - 48rpx);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .ed__label {
@@ -1238,6 +1257,9 @@ const popupStyle =
   display: flex;
   align-items: center;
   gap: 16rpx;
+  width: calc(100vw - 48rpx);
+  max-width: calc(100vw - 48rpx);
+  box-sizing: border-box;
   padding: 18rpx 20rpx;
   border-radius: 18rpx;
   background-color: var(--ui-raise);
@@ -1294,7 +1316,10 @@ const popupStyle =
 /* 每一段时间：上下两行（名称 + 忘打 在上，输入框整宽在下） */
 .ed__time {
   margin-bottom: 14rpx;
-  min-width: 0;
+  width: calc(100vw - 48rpx);
+  max-width: calc(100vw - 48rpx);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .ed__time-head {
@@ -1312,7 +1337,8 @@ const popupStyle =
 
 .ed__time-input {
   display: block;
-  width: 100%;
+  width: calc(100vw - 48rpx);
+  max-width: calc(100vw - 48rpx);
   box-sizing: border-box;
   height: 76rpx;
   padding: 0 18rpx;
@@ -1347,7 +1373,8 @@ const popupStyle =
 
 .ed__note {
   display: block;
-  width: 100%;
+  width: calc(100vw - 48rpx);
+  max-width: calc(100vw - 48rpx);
   box-sizing: border-box;
   height: 80rpx;
   padding: 0 18rpx;
@@ -1363,7 +1390,10 @@ const popupStyle =
   display: flex;
   align-items: center;
   gap: 14rpx;
-  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
+  width: 100vw;
+  max-width: 100vw;
+  box-sizing: border-box;
+  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
   border-top: 2rpx solid var(--ui-hairline);
   /* 用 App 的"抬升面"而不是纯白：纯白压在粉色场景上像贴纸（使用方原话：跟 App 颜色不搭） */
   background-color: var(--ui-raise);
