@@ -164,6 +164,12 @@ const grid = computed(() => {
   const cells = []
   for (let i = 0; i < pad; i += 1) cells.push(null)
   for (const d of days.value) cells.push(d)
+  /*
+   * 补齐到 **42 格（6 行）**（2026-10-24，使用方选"固定 6 行高度"）。
+   * 有的月份 5 行、有的 6 行，若按实际行数，切月时整块会跳一下 —— 固定后不跳。
+   */
+  while (cells.length % 7 !== 0) cells.push(null)
+  while (cells.length < 42) cells.push(null)
   return cells
 })
 
@@ -192,11 +198,117 @@ function cellTone(day) {
   return timesOf(day).length ? 'is-work' : 'is-work-empty'
 }
 
+/*
+ * 格子里的时长（2026-10-24，变更-171 续）。
+ *
+ * 使用方：「日期行的具体时间可以不要，太影响美观了，只标注时长就够了，比如 8h」
+ * 口径和他一致：工作日 = 下班−上班−午休（08:00→17:30 记 **8h**）；
+ * 加班日 = 两段之和（4+4 = 8h）。整数不带小数，非整写 8.5h。
+ */
+function durationText(day) {
+  const need = day.dayType === 'work' || day.dayType === 'overtime'
+  if (!need) return ''
+  let minutes = 0
+  const span = (a, b) => {
+    if (!a || !b) return 0
+    const [ah, am] = a.split(':').map(Number)
+    const [bh, bm] = b.split(':').map(Number)
+    const diff = (bh * 60 + bm) - (ah * 60 + am)
+    return diff > 0 ? diff : 0
+  }
+  if (day.dayType === 'overtime') {
+    minutes = span(day.amIn, day.amOut) + span(day.pmIn, day.pmOut)
+  } else {
+    const gross = span(day.amIn, day.amOut)
+    const lunch = span(settings.lunchStart, settings.lunchEnd)
+    minutes = gross > 0 ? Math.max(gross - lunch, 0) : 0
+  }
+  if (!minutes) return ''
+  const hours = minutes / 60
+  return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`
+}
+
+/** 是不是今天（用本地日期字符串比较，避免时区/夏令时坑） */
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function minutesText(total) {
   const h = Math.floor(total / 60)
   const m = total % 60
   if (!h) return `${m} 分`
   return m ? `${h} 小时 ${m} 分` : `${h} 小时`
+}
+
+/*
+ * 左右滑动切换月份（2026-10-24，变更-171 续）。
+ *
+ * 使用方要「跟手拖动」（在"整页滑入"和"跟手"之间选了跟手）。做法：
+ *   1. touchmove 时月历块跟着手指平移（只动 transform，不触发布局，不重绘格子）；
+ *   2. 松手：位移超过 56px ⇒ 先滑出屏幕，再换月，让新月从另一侧就位后滑回 0；
+ *      没超过 ⇒ 弹回原位（190ms ease-out）。
+ * 只渲染"当前这一个月"的 DOM，不预取前后月 —— 手感够跟手，也不会多拉两份数据。
+ * 竖向手势优先让给页面滚动（dx > dy*1.2 才判为横滑），避免"想上下翻却切了月"。
+ */
+const slide = reactive({ x: 0, animating: false })
+const gridRef = ref(null)
+let touchStartX = 0
+let touchStartY = 0
+let gestureAxis = '' // '' | 'h' | 'v'
+
+function onTouchStart(e) {
+  if (slide.animating) return
+  const t = e.touches?.[0]
+  if (!t) return
+  touchStartX = t.clientX
+  touchStartY = t.clientY
+  gestureAxis = ''
+}
+
+function onTouchMove(e) {
+  if (slide.animating) return
+  const t = e.touches?.[0]
+  if (!t) return
+  const dx = t.clientX - touchStartX
+  const dy = t.clientY - touchStartY
+  if (!gestureAxis) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+    gestureAxis = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v'
+  }
+  if (gestureAxis !== 'h') return
+  const limit = 120
+  slide.x = Math.max(-limit, Math.min(limit, dx))
+}
+
+function onTouchEnd() {
+  if (slide.animating) return
+  const dx = slide.x
+  gestureAxis = ''
+  const width = gridRef.value?.getBoundingClientRect?.().width || 360
+
+  if (Math.abs(dx) < 56) {
+    slide.animating = true
+    slide.x = 0
+    setTimeout(() => {
+      slide.animating = false
+    }, 220)
+    return
+  }
+
+  const dir = dx < 0 ? 1 : -1 // 向左拖 = 看下个月
+  slide.animating = true
+  slide.x = -dir * width
+  setTimeout(() => {
+    shiftMonth(dir)
+    slide.x = dir * width
+    setTimeout(() => {
+      slide.x = 0
+      setTimeout(() => {
+        slide.animating = false
+      }, 240)
+    }, 30)
+  }, 190)
 }
 
 // ===== 编辑 =====
@@ -436,24 +548,35 @@ const popupStyle =
       <text v-for="w in WEEK_LABELS" :key="w" class="at__week-cell">{{ w }}</text>
     </view>
 
-    <view class="at__grid">
+    <view
+      ref="gridRef"
+      class="at__grid-wrap"
+      @touchstart.stop="onTouchStart"
+      @touchmove.stop.prevent="onTouchMove"
+      @touchend.stop="onTouchEnd"
+      @touchcancel.stop="onTouchEnd"
+    >
       <view
-        v-for="(cell, index) in grid"
-        :key="cell ? cell.workDate : `pad-${index}`"
-        class="at__cell"
-        :class="[cell ? cellTone(cell) : 'is-pad']"
-        @click="cell && openDay(cell)"
+        class="at__grid"
+        :class="{ 'is-dragging': !slide.animating, 'is-snapping': slide.animating }"
+        :style="{ transform: `translate3d(${slide.x}px, 0, 0)` }"
       >
-        <template v-if="cell">
-          <text class="at__day">{{ Number(cell.workDate.slice(-2)) }}</text>
-          <view v-if="cell.dayType === 'overtime'" class="at__tag">加班</view>
-          <view v-else-if="cell.dayType === 'comp'" class="at__tag">调休</view>
-          <view v-if="cell.hasDuty" class="at__tag at__tag--duty">值班</view>
-          <text v-if="cell.dayType !== 'rest' && timesOf(cell).length" class="at__times">
-            {{ timesOf(cell).join(' ') }}
-          </text>
-          <text v-if="missCountOf(cell)" class="at__miss">忘{{ missCountOf(cell) }}</text>
-        </template>
+        <view
+          v-for="(cell, index) in grid"
+          :key="cell ? cell.workDate : `pad-${index}`"
+          class="at__cell"
+          :class="[cell ? cellTone(cell) : 'is-pad', cell && cell.workDate === todayStr() ? 'is-today' : '']"
+          @click="cell && openDay(cell)"
+        >
+          <template v-if="cell">
+            <text class="at__day">{{ Number(cell.workDate.slice(-2)) }}</text>
+            <text v-if="durationText(cell)" class="at__dur">{{ durationText(cell) }}</text>
+            <view v-if="cell.dayType === 'overtime'" class="at__tag">加班</view>
+            <view v-else-if="cell.dayType === 'comp'" class="at__tag">调休</view>
+            <view v-if="cell.hasDuty" class="at__tag at__tag--duty">值班</view>
+            <text v-if="missCountOf(cell)" class="at__miss">忘{{ missCountOf(cell) }}</text>
+          </template>
+        </view>
       </view>
     </view>
 
@@ -732,15 +855,29 @@ const popupStyle =
   color: var(--ui-text-3);
 }
 
+/*
+ * 固定 6 行高度（2026-10-24）：42 格 × 每格 112rpx = 672rpx。
+ * 切月时高度不变，看起来才"稳"（使用时选的固定高度）。
+ */
+.at__grid-wrap {
+  margin-top: 6rpx;
+  overflow: hidden;
+  height: 672rpx;
+}
+
 .at__grid {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 6rpx;
+  will-change: transform;
+
+  &.is-snapping {
+    transition: transform 190ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
 }
 
 .at__cell {
   width: calc(100% / 7);
-  min-height: 108rpx;
+  height: 112rpx;
   padding: 6rpx 4rpx;
   box-sizing: border-box;
   border-radius: 12rpx;
@@ -776,6 +913,17 @@ const popupStyle =
     background-color: rgba(63, 157, 107, 0.14);
     border: 2rpx solid rgba(63, 157, 107, 0.3);
   }
+
+  /* 今天：品牌色描边 + 淡品牌底，在一堆灰淡格里最跳（使用方要求"一目了然"） */
+  &.is-today {
+    border: 3rpx solid var(--ui-brand, #b4551f) !important;
+    background-color: rgba(180, 85, 31, 0.1) !important;
+
+    .at__day {
+      color: var(--ui-brand, #b4551f);
+      font-weight: 800;
+    }
+  }
 }
 
 .at__day {
@@ -791,13 +939,11 @@ const popupStyle =
   color: var(--ui-text-2);
 }
 
-.at__times {
-  font-size: 17rpx;
+.at__dur {
+  font-size: 20rpx;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
   color: var(--ui-text-2);
-  word-break: break-all;
-  text-align: center;
 }
 
 .at__miss {
