@@ -15,6 +15,7 @@ import PanelState from '../../components/PanelState.vue'
 import FilterHeaderCell from '../../components/FilterHeaderCell.vue'
 import ThemeToggle from '../../components/ThemeToggle.vue'
 import PaletteToggleMp from '../../components/PaletteToggleMp.vue'
+import AttendancePanel from '../../components/AttendancePanel.vue'
 import { paletteClassOf, usePalette } from '../../composables/usePaletteReveal'
 import NavDrawer from '../../components/NavDrawer.vue'
 import DropdownMenu from '../../components/DropdownMenu.vue'
@@ -171,6 +172,10 @@ const tabs = [
   // 采购需求（2026-10-23，变更-164）：与 PC 的 变更-142/144 同一套行为 ——
   // 新增保存后不关表单、只清物料三样；长按行号复制三样、长按名称/编码/规格复制单项
   { key: 'purchaseDemand', label: '采购需求', icon: 'cart', hint: '登记采购需求与到货进度', adminOnly: true, group: 'purchase' },
+  // 个人考勤（2026-10-24，变更-171）：事后录入自己的打卡时间，和人事对账。
+  // 不做迟到早退计算（使用方口径：迟了早了就按段标"忘打卡"）。
+  // 任何登录用户都能看自己的；保存/清除按 attendance:edit 权限（面板内判断）。
+  { key: 'attendance', label: '考勤', icon: 'calendar', hint: '记录打卡时间，导出与人事对账', group: 'tools' },
   // #ifdef H5 || APP-PLUS
   { key: 'import', label: '文件导入', icon: 'file-excel', hint: '上传 Excel 批量导入工单', perm: 'work_order:import', group: 'maintain' },
   // #endif
@@ -3813,6 +3818,11 @@ onPullDownRefresh(async () => {
       <!-- 设备数据维护（2026-10-06）：页签按 equipment:edit 权限显隐，写接口另有 admin 闸门 -->
       <div v-show="activeTab === 'equipment'">
         <EquipmentMaintenancePanel />
+      </div>
+
+      <!-- 个人考勤（2026-10-24，变更-171） -->
+      <div v-show="activeTab === 'attendance'">
+        <AttendancePanel />
       </div>
 
       <!-- 物料主数据 / 物料导入（2026-10-23，变更-164） -->
