@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useToast } from 'wot-design-uni'
 import request from '../api/request'
-import { hasPerm } from '../api/auth'
+import { hasPerm, isGuest } from '../api/auth'
 
 /*
  * 个人考勤（2026-10-24，变更-171）。
@@ -20,6 +20,12 @@ import { hasPerm } from '../api/auth'
 
 const toast = useToast()
 const canEdit = computed(() => hasPerm('attendance:edit') || hasPerm('admin'))
+
+/*
+ * 游客能看见「考勤」这个入口，但不能用（2026-10-24 使用方口径：
+ * 「游客能看到功能按钮，注册用户能使用」）。后端也拦了一道。
+ */
+const guest = isGuest()
 
 const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
@@ -153,7 +159,7 @@ async function loadMonth() {
 
 onMounted(() => {
   month.value = todayMonth()
-  loadMonth()
+  if (!guest) loadMonth()
 })
 
 // ===== 月历格子（周一起始）=====
@@ -524,6 +530,13 @@ const popupStyle =
 
 <template>
   <view class="at">
+    <!-- 游客：看得见入口，不能用 -->
+    <view v-if="guest" class="at__guest">
+      <text class="at__guest-title">该功能需要注册账号</text>
+      <text class="at__guest-sub">考勤按人隔离，每个账号只能看到自己的记录。注册并登录后即可使用。</text>
+    </view>
+
+    <template v-else>
     <!-- 月份切换 + 汇总 -->
     <view class="at__head">
       <view class="at__month">
@@ -785,6 +798,7 @@ const popupStyle =
         </view>
       </view>
     </wd-popup>
+    </template>
   </view>
 </template>
 
@@ -890,6 +904,30 @@ const popupStyle =
 
 .at__tag--duty {
   color: #3f9d6b;
+}
+
+.at__guest {
+  margin: 60rpx 20rpx;
+  padding: 48rpx 32rpx;
+  border-radius: 20rpx;
+  text-align: center;
+  background-color: var(--ui-surface);
+  border: 2rpx solid var(--ui-border);
+}
+
+.at__guest-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.at__guest-sub {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: var(--ui-text-3);
 }
 
 .at__warn {

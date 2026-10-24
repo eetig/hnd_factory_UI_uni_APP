@@ -47,6 +47,14 @@ export function isAdmin() {
   return authState.roleKey === 'admin'
 }
 
+/**
+ * 游客（roleKey = guest）：能看见入口，不能用。
+ * 使用方 2026-10-24：「游客能看到功能按钮，注册用户能使用」。
+ */
+export function isGuest() {
+  return authState.roleKey === 'guest'
+}
+
 export function getToken() {
   return authState.token
 }
