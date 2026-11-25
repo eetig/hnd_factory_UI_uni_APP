@@ -115,14 +115,19 @@
       </view>
     </view>
 
-    <!-- 编辑 / 新建 -->
+    <!--
+      编辑 / 新建（2026-11-25）：关闭就是保存。
+      点遮罩、按返回手势、点「收起 / 完成」都会先落库再收起，不再需要用户记住「点保存」。
+    -->
     <AppPopup v-model="sheetOpen" position="bottom" round safe-area-inset-bottom
-      custom-style="background-color: var(--ui-surface);">
+      custom-style="background-color: var(--ui-surface);" @close="onSheetClose">
       <view class="td-sheet">
         <view class="td-sheet__head">
           <text class="td-sheet__title">{{ editingId ? '改这条' : '记一条' }}</text>
-          <text class="td-sheet__close" @click="sheetOpen = false">关闭</text>
+          <text class="td-sheet__close" @click="finish">收起</text>
         </view>
+
+        <text class="td-sheet__tip">写好直接收起也会存，不用点保存</text>
 
         <input v-model="form.title" class="td-sheet__input td-sheet__input--title" placeholder="要办什么"
           :maxlength="200" confirm-type="done" />
@@ -153,9 +158,8 @@
 
         <view class="td-sheet__actions">
           <view v-if="editingId" class="td-sheet__del" @click="removeItem">删除</view>
-          <view v-else class="td-sheet__ghost" @click="sheetOpen = false">取消</view>
-          <view class="td-sheet__save" :class="{ 'td-sheet__save--busy': saving }" @click="save">
-            <text>{{ saving ? '保存中…' : '保存' }}</text>
+          <view class="td-sheet__save" @click="finish">
+            <text>完成</text>
           </view>
         </view>
       </view>
@@ -190,6 +194,7 @@ import { onBackPress, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { handleGlobalBack } from '../../utils/popupStack'
 
 import request from '../../api/request'
+import { getItem, setItem, removeItem as removeStoredItem } from '../../api/storage'
 import { uploadFile } from '../../api/upload'
 import { resolveAssetUrl } from '../../api/config'
 import { chooseImages } from '../../utils/chooseImages'
@@ -223,9 +228,17 @@ const refreshing = ref(false)
 
 const sheetOpen = ref(false)
 const photoOpen = ref(false)
-const saving = ref(false)
 const editingId = ref(null)
 const form = ref(blankForm())
+/** 打开弹层那一刻的内容。关的时候跟它比，没改过就不发请求、不弹「改好了」 */
+const baseline = ref(blankForm())
+/** 这次打开是不是从本机草稿带回来的（带回来的内容即使没动，关的时候也要存） */
+const draftRestored = ref(false)
+
+/** 没存上的内容放这儿：create 是新建草稿，edit:<id> 是某条已有待办的改动草稿 */
+const DRAFT_KEY = 'todo:unsavedDrafts'
+/** 一次关闭只处理一次：遮罩、返回手势、收起/完成 都汇到 handleClose */
+let closeHandled = false
 
 const overdueCount = computed(() => groupOf(openItems.value).overdue.length)
 const todayCount = computed(() => groupOf(openItems.value).today.length)
@@ -257,6 +270,61 @@ function countOf(key) {
 
 function blankForm() {
   return { title: '', note: '', dueDate: '', images: [] }
+}
+
+/** 只留要存 / 要比的四个字段：别把响应式代理和多余字段写进本地存储 */
+function normalizeForm(raw) {
+  return {
+    title: String(raw?.title || ''),
+    note: String(raw?.note || ''),
+    dueDate: String(raw?.dueDate || ''),
+    images: Array.isArray(raw?.images) ? raw.images.filter(Boolean) : [],
+  }
+}
+
+function formSnapshot() {
+  return normalizeForm(form.value)
+}
+
+function sameForm(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** 有「写下来的东西」才算草稿：openCreate 默认填的今天不算 */
+function hasWrittenContent(data) {
+  return !!(data.title.trim() || data.note.trim() || data.images.length)
+}
+
+function draftKeyOf(id) {
+  return id ? `edit:${id}` : 'create'
+}
+
+function readDrafts() {
+  try {
+    const parsed = JSON.parse(getItem(DRAFT_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (error) {
+    return {}
+  }
+}
+
+function takeDraft(key) {
+  const entry = readDrafts()[key]
+  return entry && entry.form ? normalizeForm(entry.form) : null
+}
+
+function stashDraft(key, data) {
+  const all = readDrafts()
+  all[key] = { form: normalizeForm(data), at: Date.now() }
+  setItem(DRAFT_KEY, JSON.stringify(all))
+}
+
+function dropDraft(key) {
+  const all = readDrafts()
+  if (!(key in all)) return
+  delete all[key]
+  if (Object.keys(all).length) setItem(DRAFT_KEY, JSON.stringify(all))
+  else removeStoredItem(DRAFT_KEY)
 }
 
 function isoToday() {
@@ -601,8 +669,20 @@ watch(highlightIndex, (index) => {
 
 function openCreate() {
   editingId.value = null
-  form.value = blankForm()
-  form.value.dueDate = isoToday()
+  const draft = takeDraft('create')
+  if (draft && hasWrittenContent(draft)) {
+    // 上次没存上（断网 / 只写了说明）的内容直接带回来，用户不用重打
+    form.value = draft
+    draftRestored.value = true
+    toast('上次没存上的，给你带回来了')
+  } else {
+    if (draft) dropDraft('create')
+    form.value = blankForm()
+    form.value.dueDate = isoToday()
+    draftRestored.value = false
+  }
+  baseline.value = formSnapshot()
+  closeHandled = false
   sheetOpen.value = true
 }
 
@@ -610,12 +690,24 @@ function openEdit(item) {
   // 刚横滑完带出来的 click：手指是「翻页」不是「点这张卡」，别顺手把编辑弹出来
   if (Date.now() - lastDragAt < 350) return
   editingId.value = item.id
-  form.value = {
-    title: item.title || '',
-    note: item.note || '',
+  // 基准是服务器上的原样：草稿恢复出来的内容也算「改过」，关的时候要存
+  const base = normalizeForm({
+    title: item.title,
+    note: item.note,
     dueDate: item.dueDate ? String(item.dueDate).slice(0, 10) : '',
-    images: Array.isArray(item.images) ? [...item.images] : [],
+    images: item.images,
+  })
+  const draft = takeDraft(draftKeyOf(item.id))
+  if (draft) {
+    form.value = draft
+    draftRestored.value = true
+    toast('上次没存上的改动，给你带回来了')
+  } else {
+    form.value = normalizeForm(base)
+    draftRestored.value = false
   }
+  baseline.value = base
+  closeHandled = false
   sheetOpen.value = true
 }
 
@@ -691,30 +783,77 @@ async function uploadShots(paths) {
   }
 }
 
-async function save() {
-  const title = String(form.value.title || '').trim()
+/** 「收起 / 完成」：先按关闭处理（保存），再收起弹层 */
+function finish() {
+  handleClose()
+  sheetOpen.value = false
+}
+
+/** 点遮罩、按返回手势时 AppPopup 发来的 close：同样按关闭处理 */
+function onSheetClose() {
+  handleClose()
+}
+
+/**
+ * 关闭 = 保存（2026-11-25）。
+ *
+ * 使用方原话：经常忘了点保存，切走就白写了。所以这里不再有「保存」按钮：
+ * - 没改过：不发请求，也不弹「改好了」；
+ * - 有标题：新建 POST / 编辑 PUT；
+ * - 没标题：不建空条目；写了说明 / 带了图就留本机草稿，下次打开带回来。
+ */
+function handleClose() {
+  if (closeHandled) return
+  closeHandled = true
+
+  const snapshot = formSnapshot()
+  const key = draftKeyOf(editingId.value)
+  const changed = draftRestored.value || !sameForm(snapshot, baseline.value)
+  if (!changed) return
+
+  const title = snapshot.title.trim()
   if (!title) {
-    toast('先写一句要办什么')
+    if (editingId.value) {
+      stashDraft(key, snapshot)
+      toast('标题空了，这条没改，改动先留着')
+      return
+    }
+    if (hasWrittenContent(snapshot)) {
+      stashDraft(key, snapshot)
+      toast('没写要办什么，先帮你留着')
+    } else {
+      dropDraft(key)
+    }
     return
   }
-  if (saving.value) return
-  saving.value = true
+
+  const payload = {
+    title,
+    note: snapshot.note.trim(),
+    dueDate: snapshot.dueDate,
+    images: snapshot.images,
+  }
+  commit(key, editingId.value, payload)
+}
+
+/**
+ * 真正落库。弹层这时已经收起了，所以失败也不能把字丢掉：
+ * 同一份内容写回本机草稿，下次点「记一条」/ 打开这条时自动带回来。
+ */
+async function commit(key, id, payload) {
   try {
-    const payload = {
-      title,
-      note: String(form.value.note || '').trim(),
-      dueDate: form.value.dueDate || '',
-      images: form.value.images,
-    }
-    if (editingId.value) await request.put(`/api/todo/${editingId.value}`, payload)
-    else await request.post('/api/todo/create', payload)
-    sheetOpen.value = false
-    toast(editingId.value ? '改好了' : '记下了')
+    const res = id
+      ? await request.put(`/api/todo/${id}`, payload)
+      : await request.post('/api/todo/create', payload)
+    const body = res?.data || {}
+    if (body.code !== 200) throw new Error(body.msg || '没存上')
+    dropDraft(key)
+    toast(id ? '改好了' : '记下了')
     await load()
+    if (doneLoaded.value) loadDone().catch(() => {})
   } catch (error) {
-    toast(errorText(error, '没保存上'))
-  } finally {
-    saving.value = false
+    stashDraft(key, payload)
+    toast('网络不好，先存手机上了')
   }
 }
 
@@ -738,6 +877,11 @@ function removeItem() {
       if (!res.confirm) return
       try {
         await request.delete(`/api/todo/${editingId.value}`)
+        // 这条都没了，之前没存上的改动草稿也别再带回来
+        dropDraft(draftKeyOf(editingId.value))
+        // 这次收起不是「用户走了要保存」，是这条已经删了：
+        // 挡住 AppPopup 随后可能发来的 close，别把已删的内容又 PUT 一遍
+        closeHandled = true
         sheetOpen.value = false
         toast('删掉了')
         await load()
@@ -1156,6 +1300,15 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   color: var(--ui-text-3);
 }
 
+/* 一句话把「不用找保存」说清楚：使用方就是因为忘了点保存才丢内容 */
+.td-sheet__tip {
+  display: block;
+  margin: -8rpx 0 18rpx;
+  font-size: 23rpx;
+  line-height: 1.4;
+  color: var(--ui-text-3);
+}
+
 .td-sheet__input {
   height: 92rpx;
   padding: 0 22rpx;
@@ -1288,7 +1441,6 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   margin-top: 24rpx;
 }
 
-.td-sheet__ghost,
 .td-sheet__del {
   flex: 0 0 190rpx;
   height: 92rpx;
@@ -1298,10 +1450,6 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   justify-content: center;
   font-size: 28rpx;
   background: var(--ui-raise-2);
-  color: var(--ui-text-2);
-}
-
-.td-sheet__del {
   color: var(--ui-amber-800);
 }
 
@@ -1316,10 +1464,6 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   font-weight: 600;
   background: var(--ui-accent);
   color: var(--ui-on-accent);
-}
-
-.td-sheet__save--busy {
-  opacity: 0.6;
 }
 
 /* 附图来源弹层 */
