@@ -72,13 +72,32 @@
                   </view>
 
                   <view v-for="item in group.items" :key="item.id" class="td__item"
-                    :class="{ 'td__item--late': group.key === 'overdue' }" @click="openEdit(item)">
-                    <view class="td__check" :class="{ 'td__check--on': item.done }" @click.stop="toggle(item)">
-                      <text v-if="item.done" class="td__check-mark">✓</text>
+                    :class="{
+                      'td__item--late': group.key === 'overdue',
+                      'td__item--striking': strikeOf(item.id) === 'done',
+                      'td__item--un-striking': strikeOf(item.id) === 'undo',
+                    }" @click="openEdit(item)">
+                    <view class="td__check"
+                      :class="{ 'td__check--on': item.done || strikeOf(item.id) === 'done' }"
+                      @click.stop="toggle(item)">
+                      <text v-if="item.done || strikeOf(item.id) === 'done'" class="td__check-mark"
+                        :class="{
+                          'td__check-mark--pop': strikeOf(item.id) === 'done',
+                          'td__check-mark--out': strikeOf(item.id) === 'undo',
+                        }">✓</text>
                     </view>
 
                     <view class="td__body">
-                      <text class="td__title" :class="{ 'td__title--done': item.done }">{{ item.title }}</text>
+                      <view class="td__title-wrap">
+                        <text class="td__title"
+                          :class="{ 'td__title--done': item.done && strikeOf(item.id) !== 'undo' }">{{ item.title }}</text>
+                        <!-- 一根从左往右长出来的线：完成时「划掉」，取消完成时倒着收回 -->
+                        <view class="td__strike"
+                          :class="{
+                            'td__strike--in': strikeOf(item.id) === 'done',
+                            'td__strike--out': strikeOf(item.id) === 'undo',
+                          }"></view>
+                      </view>
                       <text v-if="item.note" class="td__note">{{ item.note }}</text>
 
                       <view v-if="item.images && item.images.length" class="td__shots">
@@ -225,6 +244,32 @@ const doneLoaded = ref(false)
 const loading = ref(false)
 const booting = ref(true)
 const refreshing = ref(false)
+
+/*
+ * 正在播「完成 / 取消完成」动画的那条：id → 'done' | 'undo'。
+ * 它跟 item.done 是两回事：item.done 要等接口回来刷新才变，动画得当场给反应。
+ */
+const striking = ref({})
+
+/** 卡片上取动画状态，模板里到处用，取不到就是空串 */
+function strikeOf(id) {
+  return striking.value[id] || ''
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 系统开了「减弱动态效果」就不播动画，也别干等 */
+function prefersReducedMotion() {
+  try {
+    return typeof window !== 'undefined' && !!window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch (error) {
+    return false
+  }
+}
+
+/** 动画总时长：勾 120 + 划线 160 + 卡片淡出 140，留一点缓冲（跟样式里的 ms 对齐） */
+const STRIKE_TOTAL = prefersReducedMotion() ? 0 : 320
 
 const sheetOpen = ref(false)
 const photoOpen = ref(false)
@@ -689,6 +734,8 @@ function openCreate() {
 function openEdit(item) {
   // 刚横滑完带出来的 click：手指是「翻页」不是「点这张卡」，别顺手把编辑弹出来
   if (Date.now() - lastDragAt < 350) return
+  // 这张正在播完成动画：别在它淡出的半路把编辑弹层顶出来
+  if (striking.value[item.id]) return
   editingId.value = item.id
   // 基准是服务器上的原样：草稿恢复出来的内容也算「改过」，关的时候要存
   const base = normalizeForm({
@@ -857,13 +904,39 @@ async function commit(key, id, payload) {
   }
 }
 
+/**
+ * 完成 / 取消完成：先把动画放出去，同时发请求，等动画走完再刷新列表。
+ *
+ * 为什么不等接口回来再刷新：那样卡片会「愣」半秒才消失，比不播动画更钝；
+ * 为什么失败要倒放：动画已经把「办完了」演给用户看了，接口失败还留着划线，
+ * 用户会以为真办完了，第二天发现还在，比没动画更糟。
+ */
 async function toggle(item) {
+  const id = item.id
+  if (striking.value[id]) return // 动画还在播：再点一下不算，免得来回打架
+  const target = !item.done
+  striking.value = { ...striking.value, [id]: target ? 'done' : 'undo' }
+
   try {
-    await request.post(`/api/todo/${item.id}/done?done=${item.done ? 'false' : 'true'}`)
+    // 请求和动画并行：网络慢的时候，动画照样先把 320ms 演完，不会等接口才开始
+    await Promise.all([
+      request.post(`/api/todo/${id}/done?done=${target}`),
+      sleep(STRIKE_TOTAL),
+    ])
     await load()
     if (doneLoaded.value) await loadDone()
   } catch (error) {
-    toast(errorText(error, '没改成'))
+    /*
+     * 没存上：先让「勾上 / 划掉」演到一半再倒放。
+     * 立刻缩回去只会闪一下，用户根本看不清发生了什么，反以为点了没反应；
+     * 演一下再收回来 + 一句提示，才读得出「试了，没成」。
+     */
+    await sleep(prefersReducedMotion() ? 0 : 140)
+    toast(errorText(error, '没改成，再试一次'))
+  } finally {
+    const rest = { ...striking.value }
+    delete rest[id]
+    striking.value = rest
   }
 }
 
@@ -1099,10 +1172,22 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   border-radius: 20rpx;
   background: var(--ui-surface);
   border: 2rpx solid var(--ui-hairline);
+  /*
+   * 完成动画的最后一拍：卡片淡出 + 轻轻下沉。
+   * 延迟 170ms 是为了「先划掉、再淡出」—— 两个动作同时来会糊成一团。
+   */
+  transition: opacity 140ms ease-out 170ms, transform 140ms ease-out 170ms;
 }
 
 .td__item--late {
   border-color: var(--ui-amber-200);
+}
+
+/* 完成 / 取消完成时整张卡淡出；失败时摘掉这两个类，CSS 会自己倒放回去 */
+.td__item--striking,
+.td__item--un-striking {
+  opacity: 0;
+  transform: translateY(6rpx);
 }
 
 .td__check {
@@ -1115,6 +1200,7 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, transform 100ms ease-out;
 }
 
 .td__check--on {
@@ -1128,9 +1214,47 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   color: var(--ui-on-accent);
 }
 
+/* 勾号弹出来 / 缩回去。用 animation 而不是 transition：它是一次性的「啪」一下 */
+.td__check-mark--pop {
+  animation: td-tick-pop 120ms cubic-bezier(.34, 1.4, .64, 1) both;
+}
+
+.td__check-mark--out {
+  animation: td-tick-out 100ms ease-in both;
+}
+
+@keyframes td-tick-pop {
+  from {
+    transform: scale(.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes td-tick-out {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(.4);
+    opacity: 0;
+  }
+}
+
 .td__body {
   flex: 1;
   min-width: 0;
+}
+
+.td__title-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
 }
 
 .td__title {
@@ -1143,6 +1267,42 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
 .td__title--done {
   color: var(--ui-text-2);
   text-decoration: line-through;
+}
+
+/*
+ * 划掉的那根线：绝对定位，靠 scaleX 从 0 长到 1（只动 transform，不动宽度，
+ * 才不会每帧重排）。放在标题块正中，一行标题正好压在字中间。
+ */
+.td__strike {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3rpx;
+  background: var(--ui-text-2);
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+  /* 过渡写在默认态：失败时摘掉 --in，线才能顺着同一个缓动缩回去，而不是「啪」一下没了 */
+  transition: transform 160ms cubic-bezier(.4, .66, .24, 1);
+}
+
+.td__strike--in {
+  transform: scaleX(1);
+}
+
+/* 取消完成：线从右往左收回（animation 才能从 1 起步倒着走） */
+.td__strike--out {
+  animation: td-strike-back 140ms cubic-bezier(.4, .66, .24, 1) both;
+}
+
+@keyframes td-strike-back {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .td__note {
@@ -1498,5 +1658,23 @@ const { onTouchStart: onEdgeStart, onTouchEnd: onEdgeEnd } = useEdgeSwipe(() => 
   font-size: 29rpx;
   color: var(--ui-text-2);
   background: var(--ui-raise-2);
+}
+
+/*
+ * 系统开了「减弱动态效果」：不播动画，勾和划线直接到位。
+ * JS 那边 STRIKE_TOTAL 也会变 0，不会白等 320ms。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .td__item,
+  .td__check,
+  .td__strike--in {
+    transition: none !important;
+  }
+
+  .td__check-mark--pop,
+  .td__check-mark--out,
+  .td__strike--out {
+    animation: none !important;
+  }
 }
 </style>
